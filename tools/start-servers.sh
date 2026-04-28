@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# start-servers.sh — Startet REST-API (Port 3003) und Frontend (Port 5173)
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Farben (nur bei Terminal-Output)
+if [ -t 1 ]; then
+  GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BOLD='\033[1m'; NC='\033[0m'
+else
+  GREEN=''; YELLOW=''; RED=''; BOLD=''; NC=''
+fi
+
+info()  { echo -e "${GREEN}✓${NC} $1"; }
+warn()  { echo -e "${YELLOW}⚠${NC} $1"; }
+error() { echo -e "${RED}✗${NC} $1"; }
+header(){ echo -e "\n${BOLD}$1${NC}"; }
+
+# PID auf einem Port ermitteln (macOS-kompatibel, IPv6-safe)
+get_listen_pid() {
+  lsof -nP -iTCP:"$1" 2>/dev/null | awk '/LISTEN/ {print $2}' | sort -u | head -1
+}
+
+# Warte bis ein Port antwortet (max $2 Sekunden)
+wait_for_port() {
+  local port=$1 max=${2:-5} i=0
+  while [ $i -lt $max ]; do
+    if lsof -nP -iTCP:"$port" 2>/dev/null | grep -q LISTEN; then
+      return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+api_started=false
+frontend_started=false
+
+# ─── REST-API ────────────────────────────────────────────────
+header "REST-API (Port 3003)"
+
+# Prüfe DB-Kopie
+if [ ! -f "$PROJECT_ROOT/rest-api/db/fm_catalog.duckdb" ]; then
+  error "Datenbank nicht gefunden: rest-api/db/fm_catalog.duckdb"
+  error "Bitte zuerst 'convert-xml --batch' ausführen."
+  exit 1
+fi
+
+# Prüfe ob bereits aktiv
+API_PID=$(get_listen_pid 3003 || true)
+if [ -n "$API_PID" ]; then
+  info "REST-API läuft bereits (PID $API_PID)"
+else
+  # Server starten
+  cd "$PROJECT_ROOT/rest-api"
+  nohup node src/index.js > "$PROJECT_ROOT/logs/rest-api.log" 2>&1 &
+  API_PID=$!
+  cd "$PROJECT_ROOT"
+
+  if wait_for_port 3003 5; then
+    info "REST-API gestartet (PID $API_PID)"
+    api_started=true
+  else
+    error "REST-API konnte nicht gestartet werden. Log:"
+    tail -20 "$PROJECT_ROOT/logs/rest-api.log" 2>/dev/null || true
+    exit 1
+  fi
+fi
+
+# Version abrufen
+API_VERSION=$(curl -s http://localhost:3003/api/version 2>/dev/null || echo "")
+if [ -n "$API_VERSION" ]; then
+  TABLE_COUNT=$(echo "$API_VERSION" | grep -o '"tableCount":[0-9]*' | grep -o '[0-9]*' || echo "?")
+  info "API antwortet — $TABLE_COUNT Tabellen geladen"
+else
+  warn "API läuft, aber /api/version antwortet nicht"
+fi
+
+# ─── Frontend ────────────────────────────────────────────────
+header "Frontend (Port 5173)"
+
+# Prüfe Vite-Installation
+if [ ! -f "$PROJECT_ROOT/node_modules/.bin/vite" ]; then
+  error "Vite nicht gefunden. Bitte im Projekt-Root 'npm install' ausführen."
+  exit 1
+fi
+
+# Prüfe ob bereits aktiv
+FE_PID=$(get_listen_pid 5173 || true)
+if [ -n "$FE_PID" ]; then
+  info "Frontend läuft bereits (PID $FE_PID)"
+else
+  # Vite starten
+  cd "$PROJECT_ROOT/apps/web"
+  nohup npm run dev > "$PROJECT_ROOT/logs/frontend.log" 2>&1 &
+  FE_PID=$!
+  cd "$PROJECT_ROOT"
+
+  if wait_for_port 5173 8; then
+    # PID nochmal lesen (npm spawnt Child-Prozess)
+    FE_PID=$(get_listen_pid 5173 || true)
+    info "Frontend gestartet (PID $FE_PID)"
+    frontend_started=true
+  else
+    error "Frontend konnte nicht gestartet werden. Log:"
+    tail -20 "$PROJECT_ROOT/logs/frontend.log" 2>/dev/null || true
+    exit 1
+  fi
+fi
+
+# ─── Zusammenfassung ─────────────────────────────────────────
+header "Status"
+echo "  REST-API:  http://localhost:3003  $([ "$api_started" = true ] && echo '(neu gestartet)' || echo '(lief bereits)')"
+echo "  Frontend:  http://localhost:5173  $([ "$frontend_started" = true ] && echo '(neu gestartet)' || echo '(lief bereits)')"
+echo ""
+echo "  Stoppen:   tools/stop-servers.sh"
+echo "  API-Log:   logs/rest-api.log"
+echo "  FE-Log:    logs/frontend.log"

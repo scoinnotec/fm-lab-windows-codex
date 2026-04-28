@@ -1,0 +1,1666 @@
+/*
+-- Universal Catalog SQL Script
+-- Erstellt VariableUsages, VariablesCatalog, ObjectCatalog und ObjectLinks
+--
+-- WICHTIG: Diese Datei wird NACH convert_xml.sql UND extract_xml_references.py ausgeführt!
+-- Sie setzt voraus, dass:
+--   1. Alle 25 Basis-Tabellen bereits befüllt sind (convert_xml.sql)
+--   2. XMLLayoutReferences und XMLStepReferences existieren (extract_xml_references.py + CSV-Import)
+--
+-- Reihenfolge:
+--   Phase 0: Import der XML-Referenz-CSVs (Python XML-Extraktor)
+--   Phase A: Variablen-Parser (VariableUsages + VariablesCatalog)
+--   Phase B: ObjectCatalog (inkl. Variablen als Variable)
+--   Phase C: ObjectLinks (inkl. sets_variable/reads_variable/displays_variable)
+--   Phase D: Statistik-Views
+--
+-- Usage:
+--   1. Alle XML-Dateien importieren: convert-xml --batch (führt alles automatisch aus)
+--   2. Oder manuell:
+--      duckdb db/fm_catalog.duckdb -c "SET VARIABLE fm_xml = 'File.xml';" < sql/convert_xml.sql
+--      python3 scripts/extract_xml_references.py
+--      duckdb db/fm_catalog.duckdb < sql/create_universal_catalogs.sql
+--
+-- Version 0.3
+-- Date: 2026-03-26
+*/
+
+-- ############################################################
+-- Phase 0: XML-Referenzen (erstellt von convert_xml.sql)
+-- ############################################################
+-- XMLLayoutReferences und XMLStepReferences werden direkt in
+-- convert_xml.sql per xml_extract_text() erzeugt.
+-- Kein Python-Script oder CSV-Import mehr nötig.
+
+
+-- ############################################################
+-- Phase A: Variablen-Parser
+-- ############################################################
+-- Erstellt VariableUsages + VariablesCatalog aus:
+-- 1. DDR_Calculations VariableReference Chunks (primär)
+-- 2. StepsForScripts Set Variable Schritte
+-- 3. MBS Superglobale (Regex auf Calculation_Text)
+-- 4. Merge-Variables aus LayoutObjects
+-- 5. Regex-Fallback für Dateien ohne DDR
+-- ############################################################
+
+
+-- ========================================
+-- A.1: VariableUsages Tabelle
+-- ========================================
+
+DROP TABLE IF EXISTS VariableUsages;
+
+CREATE TABLE VariableUsages (
+    Variable_Name VARCHAR NOT NULL,
+    Variable_Scope VARCHAR NOT NULL,       -- global, local, superglobal, let_local
+    Usage_Type VARCHAR NOT NULL,           -- set, read
+    Context_Type VARCHAR NOT NULL,         -- script_step, calculation, auto_enter_calc, custom_function, layout_object
+    Context_UUID VARCHAR,
+    Context_Name VARCHAR,
+    Script_Name VARCHAR,
+    Script_UUID VARCHAR,
+    Step_Index INTEGER,
+    Table_Name VARCHAR,
+    Field_Name VARCHAR,
+    Calc_Hash VARCHAR,
+    Source VARCHAR NOT NULL,               -- set_variable_step, ddr_chunk, mbs_variable_call, merge_variable, regex_fallback
+    File_Name VARCHAR NOT NULL
+);
+
+
+-- ========================================
+-- A.2: Chunk_Type in DDR_Calculations materialisieren
+-- ========================================
+
+UPDATE DDR_Calculations
+SET Chunk_Type = regexp_extract(Chunk_Content, '<Chunk type="([^"]+)"', 1)
+WHERE Chunk_Type IS NULL
+  AND Chunk_Content IS NOT NULL;
+
+
+-- ========================================
+-- A.3: DDR VariableReference Chunks → VariableUsages
+-- ========================================
+
+-- 3a: Variablen in Calculated Fields (FieldsForTables.DDR_Hash)
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) as Variable_Name,
+    CASE
+        WHEN regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) LIKE '$$%' THEN 'global'
+        WHEN regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) LIKE '$%' THEN 'local'
+        ELSE 'let_local'
+    END as Variable_Scope,
+    'read' as Usage_Type,
+    'calculation' as Context_Type,
+    f.Field_UUID as Context_UUID,
+    f.Table_Name || '::' || f.Field_Name as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    f.Table_Name,
+    f.Field_Name,
+    dc.Calc_Hash,
+    'ddr_chunk' as Source,
+    dc.File_Name
+FROM DDR_Calculations dc
+JOIN FieldsForTables f ON dc.Calc_Hash = f.DDR_Hash AND dc.File_Name = f.File_Name
+WHERE dc.Chunk_Type = 'VariableReference'
+  AND regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) IS NOT NULL;
+
+-- 3b: Variablen in AutoEnter Calculated Fields (FieldsForTables.AE_Calc_Hash)
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) as Variable_Name,
+    CASE
+        WHEN regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) LIKE '$$%' THEN 'global'
+        WHEN regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) LIKE '$%' THEN 'local'
+        ELSE 'let_local'
+    END as Variable_Scope,
+    'read' as Usage_Type,
+    'auto_enter_calc' as Context_Type,
+    f.Field_UUID as Context_UUID,
+    f.Table_Name || '::' || f.Field_Name as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    f.Table_Name,
+    f.Field_Name,
+    dc.Calc_Hash,
+    'ddr_chunk' as Source,
+    dc.File_Name
+FROM DDR_Calculations dc
+JOIN FieldsForTables f ON dc.Calc_Hash = f.AE_Calc_Hash AND dc.File_Name = f.File_Name
+WHERE dc.Chunk_Type = 'VariableReference'
+  AND f.AE_Calc_Hash IS NOT NULL
+  AND regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) IS NOT NULL;
+
+-- 3c: Variablen in CustomFunctions (CustomFunctionsCatalog.DDR_Hash)
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) as Variable_Name,
+    CASE
+        WHEN regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) LIKE '$$%' THEN 'global'
+        WHEN regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) LIKE '$%' THEN 'local'
+        ELSE 'let_local'
+    END as Variable_Scope,
+    'read' as Usage_Type,
+    'custom_function' as Context_Type,
+    cf.CF_UUID as Context_UUID,
+    cf.CF_Name as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    dc.Calc_Hash,
+    'ddr_chunk' as Source,
+    dc.File_Name
+FROM DDR_Calculations dc
+JOIN CustomFunctionsCatalog cf ON dc.Calc_Hash = cf.DDR_Hash AND dc.File_Name = cf.File_Name
+WHERE dc.Chunk_Type = 'VariableReference'
+  AND cf.DDR_Hash IS NOT NULL
+  AND regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) IS NOT NULL;
+
+-- 3d: Variablen in Script-Schritt-Formeln
+-- StepsForScripts.Parameters_XML enthält ChunkList-Hashes → DDR_Calculations.Calc_Hash
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) as Variable_Name,
+    CASE
+        WHEN regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) LIKE '$$%' THEN 'global'
+        WHEN regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) LIKE '$%' THEN 'local'
+        ELSE 'let_local'
+    END as Variable_Scope,
+    'read' as Usage_Type,
+    'script_step' as Context_Type,
+    s.Script_UUID as Context_UUID,
+    s.Script_Name as Context_Name,
+    s.Script_Name,
+    s.Script_UUID,
+    s.Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    dc.Calc_Hash,
+    'ddr_chunk' as Source,
+    dc.File_Name
+FROM DDR_Calculations dc
+JOIN (
+    SELECT
+        Script_Name, Script_UUID, Step_Index, File_Name,
+        unnest(regexp_extract_all(CAST(Parameters_XML AS VARCHAR),
+            'kind="ChunkList" hash="([A-F0-9]+)"', 1)) as calc_hash
+    FROM StepsForScripts
+    WHERE Parameters_XML IS NOT NULL
+      AND CAST(Parameters_XML AS VARCHAR) LIKE '%ChunkList%'
+) s ON dc.Calc_Hash = s.calc_hash AND dc.File_Name = s.File_Name
+WHERE dc.Chunk_Type = 'VariableReference'
+  AND regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) IS NOT NULL;
+
+-- 3e: DDR-Variablen ohne zuordenbaren Kontext
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) as Variable_Name,
+    CASE
+        WHEN regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) LIKE '$$%' THEN 'global'
+        WHEN regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) LIKE '$%' THEN 'local'
+        ELSE 'let_local'
+    END as Variable_Scope,
+    'read' as Usage_Type,
+    'calculation' as Context_Type,
+    NULL as Context_UUID,
+    NULL as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    dc.Calc_Hash,
+    'ddr_chunk' as Source,
+    dc.File_Name
+FROM DDR_Calculations dc
+WHERE dc.Chunk_Type = 'VariableReference'
+  AND regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM FieldsForTables f
+      WHERE (dc.Calc_Hash = f.DDR_Hash OR dc.Calc_Hash = f.AE_Calc_Hash)
+        AND dc.File_Name = f.File_Name
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM CustomFunctionsCatalog cf
+      WHERE dc.Calc_Hash = cf.DDR_Hash AND dc.File_Name = cf.File_Name
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM StepsForScripts s
+      WHERE s.Parameters_XML IS NOT NULL
+        AND CAST(s.Parameters_XML AS VARCHAR) LIKE '%' || dc.Calc_Hash || '%'
+        AND dc.File_Name = s.File_Name
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM LayoutObjects lo
+      WHERE lo.Object_XML IS NOT NULL
+        AND CAST(lo.Object_XML AS VARCHAR) LIKE '%' || dc.Calc_Hash || '%'
+        AND lo.File_Name = dc.File_Name
+  );
+
+-- ========================================
+-- A.3f: Variablen in LayoutObject-Formeln (Object_XML ChunkList-Hashes)
+-- ========================================
+-- Erfasst Variablen-Referenzen in:
+-- Conditional Formatting, Hide Conditions, Tooltips, Platzhalter,
+-- berechnete Labels, Portal-Filter, Web-Viewer-URLs, Tab-Panel-Titel,
+-- Script-Parameter, Display Calculations, Popover-Titel
+--
+-- Alle diese Kontexte verwenden DDRREF kind="ChunkList" hash="..." in Object_XML.
+-- Der Hash wird gegen DDR_Calculations aufgelöst um VariableReference-Chunks zu finden.
+
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) as Variable_Name,
+    CASE
+        WHEN regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) LIKE '$$%' THEN 'global'
+        WHEN regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) LIKE '$%' THEN 'local'
+        ELSE 'let_local'
+    END as Variable_Scope,
+    'read' as Usage_Type,
+    'layout_object' as Context_Type,
+    lo.Object_UUID as Context_UUID,
+    l.L_Name || ' → ' || lo.Object_Type || COALESCE(' (' || lo.formula_context || ')', '') as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    dc.Calc_Hash,
+    'ddr_chunk' as Source,
+    dc.File_Name
+FROM DDR_Calculations dc
+JOIN (
+    SELECT
+        Object_UUID, Object_Type, Layout_ID, File_Name,
+        unnest(regexp_extract_all(CAST(Object_XML AS VARCHAR),
+            'kind="ChunkList" hash="([A-F0-9]+)"', 1)) as calc_hash,
+        unnest(regexp_extract_all(CAST(Object_XML AS VARCHAR),
+            'kind="ChunkList" hash="[A-F0-9]+">[^<]*_([A-Za-z_]+\d*)</DDRREF>', 1)) as formula_context
+    FROM LayoutObjects
+    WHERE Object_XML IS NOT NULL
+      AND CAST(Object_XML AS VARCHAR) LIKE '%ChunkList%'
+) lo ON dc.Calc_Hash = lo.calc_hash AND dc.File_Name = lo.File_Name
+JOIN Layouts l ON lo.Layout_ID = l.L_ID AND l.File_Name = lo.File_Name
+WHERE dc.Chunk_Type = 'VariableReference'
+  AND regexp_extract(dc.Chunk_Content, '>([^<]+)</Chunk>', 1) IS NOT NULL;
+
+
+-- ========================================
+-- A.4: Set Variable Schritte → VariableUsages
+-- ========================================
+
+INSERT INTO VariableUsages
+SELECT
+    Variable_Name,
+    CASE WHEN Variable_Name LIKE '$$%' THEN 'global' ELSE 'local' END as Variable_Scope,
+    'set' as Usage_Type,
+    'script_step' as Context_Type,
+    Script_UUID as Context_UUID,
+    Script_Name as Context_Name,
+    Script_Name,
+    Script_UUID,
+    Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    NULL as Calc_Hash,
+    'set_variable_step' as Source,
+    File_Name
+FROM StepsForScripts
+WHERE Step_Name = 'Set Variable'
+  AND Variable_Name IS NOT NULL;
+
+
+-- ========================================
+-- A.4b: Target=Variable Script-Steps → VariableUsages
+-- ========================================
+-- Script-Steps die ihr Ergebnis in eine Variable schreiben:
+-- Insert Text, Show Custom Dialog, Insert from URL, Insert Calculated Result,
+-- Execute FileMaker Data API, Open/Read Data File, etc.
+-- Generische Erkennung über <Variable value="$var">
+-- LATERAL UNNEST für Multi-Target (z.B. Show Custom Dialog mit 3 Eingabefeldern)
+
+INSERT INTO VariableUsages
+SELECT
+    var_name as Variable_Name,
+    CASE WHEN var_name LIKE '$$%' THEN 'global' ELSE 'local' END as Variable_Scope,
+    'set' as Usage_Type,
+    'script_step' as Context_Type,
+    Script_UUID as Context_UUID,
+    Script_Name as Context_Name,
+    Script_Name,
+    Script_UUID,
+    Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    NULL as Calc_Hash,
+    'target_variable_step' as Source,
+    File_Name
+FROM StepsForScripts
+CROSS JOIN LATERAL unnest(
+    regexp_extract_all(CAST(Parameters_XML AS VARCHAR),
+        '<Variable value="([^"]+)"', 1)
+) as t(var_name)
+WHERE Step_Name != 'Set Variable'
+  AND CAST(Parameters_XML AS VARCHAR) LIKE '%<Variable value="%';
+
+
+-- ========================================
+-- A.5: MBS Superglobale → VariableUsages
+-- ========================================
+
+-- 5a: Variable.Set / FM.VariableSet in Script-Schritten
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(Calculation_Text,
+        '(?:FM\.VariableSet|Variable\.Set)\s*"\s*;\s*"([^"]+)"', 1) as Variable_Name,
+    'superglobal' as Variable_Scope,
+    'set' as Usage_Type,
+    'script_step' as Context_Type,
+    Script_UUID as Context_UUID,
+    Script_Name as Context_Name,
+    Script_Name,
+    Script_UUID,
+    Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    NULL as Calc_Hash,
+    'mbs_variable_call' as Source,
+    File_Name
+FROM StepsForScripts
+WHERE Calculation_Text LIKE '%Variable.Set%' OR Calculation_Text LIKE '%FM.VariableSet%'
+  AND regexp_extract(Calculation_Text,
+        '(?:FM\.VariableSet|Variable\.Set)\s*"\s*;\s*"([^"]+)"', 1) IS NOT NULL;
+
+-- 5b: Variable.Get / FM.VariableGet / Variable.Exists / Variable.Lookup in Script-Schritten
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(Calculation_Text,
+        '(?:FM\.VariableGet|Variable\.Get|Variable\.Exists|Variable\.Lookup)\s*"\s*;\s*"([^"]+)"', 1) as Variable_Name,
+    'superglobal' as Variable_Scope,
+    'read' as Usage_Type,
+    'script_step' as Context_Type,
+    Script_UUID as Context_UUID,
+    Script_Name as Context_Name,
+    Script_Name,
+    Script_UUID,
+    Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    NULL as Calc_Hash,
+    'mbs_variable_call' as Source,
+    File_Name
+FROM StepsForScripts
+WHERE (Calculation_Text LIKE '%Variable.Get%'
+    OR Calculation_Text LIKE '%FM.VariableGet%'
+    OR Calculation_Text LIKE '%Variable.Exists%'
+    OR Calculation_Text LIKE '%Variable.Lookup%')
+  AND regexp_extract(Calculation_Text,
+        '(?:FM\.VariableGet|Variable\.Get|Variable\.Exists|Variable\.Lookup)\s*"\s*;\s*"([^"]+)"', 1) IS NOT NULL;
+
+-- 5c: Variable.Append / Variable.AppendValue / Variable.AppendJSON / Variable.Add in Script-Schritten
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(Calculation_Text,
+        '(?:Variable\.Append|Variable\.AppendValue|Variable\.AppendJSON|Variable\.Add)\s*"\s*;\s*"([^"]+)"', 1) as Variable_Name,
+    'superglobal' as Variable_Scope,
+    'set' as Usage_Type,
+    'script_step' as Context_Type,
+    Script_UUID as Context_UUID,
+    Script_Name as Context_Name,
+    Script_Name,
+    Script_UUID,
+    Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    NULL as Calc_Hash,
+    'mbs_variable_call' as Source,
+    File_Name
+FROM StepsForScripts
+WHERE (Calculation_Text LIKE '%Variable.Append%'
+    OR Calculation_Text LIKE '%Variable.AppendValue%'
+    OR Calculation_Text LIKE '%Variable.AppendJSON%'
+    OR Calculation_Text LIKE '%Variable.Add%')
+  AND regexp_extract(Calculation_Text,
+        '(?:Variable\.Append|Variable\.AppendValue|Variable\.AppendJSON|Variable\.Add)\s*"\s*;\s*"([^"]+)"', 1) IS NOT NULL;
+
+-- 5d: Variable.Clear in Script-Schritten
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(Calculation_Text,
+        '(?:Variable\.Clear)\s*"\s*;\s*"([^"]+)"', 1) as Variable_Name,
+    'superglobal' as Variable_Scope,
+    'set' as Usage_Type,
+    'script_step' as Context_Type,
+    Script_UUID as Context_UUID,
+    Script_Name as Context_Name,
+    Script_Name,
+    Script_UUID,
+    Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    NULL as Calc_Hash,
+    'mbs_variable_call' as Source,
+    File_Name
+FROM StepsForScripts
+WHERE Calculation_Text LIKE '%Variable.Clear%'
+  AND Calculation_Text NOT LIKE '%Variable.ClearAll%'
+  AND regexp_extract(Calculation_Text,
+        '(?:Variable\.Clear)\s*"\s*;\s*"([^"]+)"', 1) IS NOT NULL;
+
+-- 5e: MBS Superglobale in Calculated Fields (FieldsForTables.Calculation_Text)
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(Calculation_Text,
+        '(?:FM\.VariableGet|Variable\.Get|Variable\.Exists|Variable\.Lookup)\s*"\s*;\s*"([^"]+)"', 1) as Variable_Name,
+    'superglobal' as Variable_Scope,
+    'read' as Usage_Type,
+    'calculation' as Context_Type,
+    Field_UUID as Context_UUID,
+    Table_Name || '::' || Field_Name as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    Table_Name,
+    Field_Name,
+    NULL as Calc_Hash,
+    'mbs_variable_call' as Source,
+    File_Name
+FROM FieldsForTables
+WHERE Calculation_Text IS NOT NULL
+  AND (Calculation_Text LIKE '%Variable.Get%'
+    OR Calculation_Text LIKE '%FM.VariableGet%'
+    OR Calculation_Text LIKE '%Variable.Exists%'
+    OR Calculation_Text LIKE '%Variable.Lookup%')
+  AND regexp_extract(Calculation_Text,
+        '(?:FM\.VariableGet|Variable\.Get|Variable\.Exists|Variable\.Lookup)\s*"\s*;\s*"([^"]+)"', 1) IS NOT NULL;
+
+-- 5f: MBS Superglobale in AutoEnter Calculated Fields (FieldsForTables.AE_Calc_Text)
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(AE_Calc_Text,
+        '(?:FM\.VariableGet|Variable\.Get|Variable\.Exists|Variable\.Lookup)\s*"\s*;\s*"([^"]+)"', 1) as Variable_Name,
+    'superglobal' as Variable_Scope,
+    'read' as Usage_Type,
+    'auto_enter_calc' as Context_Type,
+    Field_UUID as Context_UUID,
+    Table_Name || '::' || Field_Name as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    Table_Name,
+    Field_Name,
+    NULL as Calc_Hash,
+    'mbs_variable_call' as Source,
+    File_Name
+FROM FieldsForTables
+WHERE AE_Calc_Text IS NOT NULL
+  AND (AE_Calc_Text LIKE '%Variable.Get%'
+    OR AE_Calc_Text LIKE '%FM.VariableGet%'
+    OR AE_Calc_Text LIKE '%Variable.Exists%'
+    OR AE_Calc_Text LIKE '%Variable.Lookup%')
+  AND regexp_extract(AE_Calc_Text,
+        '(?:FM\.VariableGet|Variable\.Get|Variable\.Exists|Variable\.Lookup)\s*"\s*;\s*"([^"]+)"', 1) IS NOT NULL;
+
+-- 5g: MBS Superglobale in CustomFunctions (CalcsForCustomFunctions.Calculation_Code)
+INSERT INTO VariableUsages
+SELECT
+    regexp_extract(Calculation_Code,
+        '(?:FM\.VariableGet|Variable\.Get|FM\.VariableSet|Variable\.Set|Variable\.Exists|Variable\.Lookup)\s*"\s*;\s*"([^"]+)"', 1) as Variable_Name,
+    'superglobal' as Variable_Scope,
+    CASE
+        WHEN Calculation_Code LIKE '%Variable.Set%' OR Calculation_Code LIKE '%FM.VariableSet%' THEN 'set'
+        ELSE 'read'
+    END as Usage_Type,
+    'custom_function' as Context_Type,
+    CF_UUID as Context_UUID,
+    CF_Name as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    NULL as Calc_Hash,
+    'mbs_variable_call' as Source,
+    File_Name
+FROM CalcsForCustomFunctions
+WHERE Calculation_Code IS NOT NULL
+  AND (Calculation_Code LIKE '%Variable.Get%'
+    OR Calculation_Code LIKE '%FM.VariableGet%'
+    OR Calculation_Code LIKE '%Variable.Set%'
+    OR Calculation_Code LIKE '%FM.VariableSet%'
+    OR Calculation_Code LIKE '%Variable.Exists%'
+    OR Calculation_Code LIKE '%Variable.Lookup%')
+  AND regexp_extract(Calculation_Code,
+        '(?:FM\.VariableGet|Variable\.Get|FM\.VariableSet|Variable\.Set|Variable\.Exists|Variable\.Lookup)\s*"\s*;\s*"([^"]+)"', 1) IS NOT NULL;
+
+
+-- ========================================
+-- A.6: Merge-Variables aus LayoutObjects → VariableUsages
+-- ========================================
+
+INSERT INTO VariableUsages
+SELECT
+    var_name as Variable_Name,
+    CASE WHEN var_name LIKE '$$%' THEN 'global' ELSE 'local' END as Variable_Scope,
+    'read' as Usage_Type,
+    'layout_object' as Context_Type,
+    lo.Object_UUID as Context_UUID,
+    l.L_Name as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    NULL as Calc_Hash,
+    'merge_variable' as Source,
+    lo.File_Name
+FROM LayoutObjects lo
+JOIN Layouts l ON lo.Layout_ID = l.L_ID AND lo.File_Name = l.File_Name
+CROSS JOIN LATERAL unnest(
+    regexp_extract_all(lo.Text_Content, '<<(\$\$?[^>]+)>>', 1)
+) as t(var_name)
+WHERE lo.Object_Type = 'Text'
+  AND lo.Text_Content LIKE '%<<%$%>>%';
+
+
+-- ========================================
+-- A.6b: Script-Trigger-Parameter → VariableUsages
+-- ========================================
+-- Layout-Objekte mit Script-Triggern, deren Parameter Variablen referenzieren
+
+INSERT INTO VariableUsages
+SELECT
+    var_name as Variable_Name,
+    CASE WHEN var_name LIKE '$$%' THEN 'global' ELSE 'local' END as Variable_Scope,
+    'read' as Usage_Type,
+    'layout_object' as Context_Type,
+    lo.Object_UUID as Context_UUID,
+    l.L_Name as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    NULL as Calc_Hash,
+    'script_trigger_param' as Source,
+    lo.File_Name
+FROM LayoutObjects lo
+JOIN Layouts l ON lo.Layout_ID = l.L_ID AND lo.File_Name = l.File_Name
+CROSS JOIN LATERAL unnest(
+    regexp_extract_all(lo.ScriptTrigger_Parameter_Text,
+        '\$\$?[a-zA-Z_][a-zA-Z0-9_ ]*')
+) as t(var_name)
+WHERE lo.ScriptTrigger_Parameter_Text IS NOT NULL
+  AND lo.ScriptTrigger_Parameter_Text LIKE '%$%';
+
+
+-- ========================================
+-- A.7: Regex-Fallback für Dateien ohne DDR
+-- ========================================
+
+-- 7a: Regex-Variablen aus Script-Schritt-Formeln (nur Dateien ohne DDR)
+INSERT INTO VariableUsages
+SELECT
+    var_name as Variable_Name,
+    CASE WHEN var_name LIKE '$$%' THEN 'global' ELSE 'local' END as Variable_Scope,
+    'read' as Usage_Type,
+    'script_step' as Context_Type,
+    s.Script_UUID as Context_UUID,
+    s.Script_Name as Context_Name,
+    s.Script_Name,
+    s.Script_UUID,
+    s.Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    NULL as Calc_Hash,
+    'regex_fallback' as Source,
+    s.File_Name
+FROM StepsForScripts s
+JOIN XMLMetadata m ON s.File_Name = m.Filename
+CROSS JOIN LATERAL unnest(
+    regexp_extract_all(s.Calculation_Text, '\$\$?[a-zA-Z_][a-zA-Z0-9_]*')
+) as t(var_name)
+WHERE m.Has_DDR_INFO = 'False'
+  AND s.Calculation_Text IS NOT NULL
+  AND s.Step_Name != 'Set Variable';
+
+-- 7b: Regex-Variablen aus Calculated Fields (nur Dateien ohne DDR)
+INSERT INTO VariableUsages
+SELECT
+    var_name as Variable_Name,
+    CASE WHEN var_name LIKE '$$%' THEN 'global' ELSE 'local' END as Variable_Scope,
+    'read' as Usage_Type,
+    'calculation' as Context_Type,
+    f.Field_UUID as Context_UUID,
+    f.Table_Name || '::' || f.Field_Name as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    f.Table_Name,
+    f.Field_Name,
+    NULL as Calc_Hash,
+    'regex_fallback' as Source,
+    f.File_Name
+FROM FieldsForTables f
+JOIN XMLMetadata m ON f.File_Name = m.Filename
+CROSS JOIN LATERAL unnest(
+    regexp_extract_all(f.Calculation_Text, '\$\$?[a-zA-Z_][a-zA-Z0-9_]*')
+) as t(var_name)
+WHERE m.Has_DDR_INFO = 'False'
+  AND f.Calculation_Text IS NOT NULL;
+
+-- 7c: Regex-Variablen aus AutoEnter Calculated Fields (nur Dateien ohne DDR)
+INSERT INTO VariableUsages
+SELECT
+    var_name as Variable_Name,
+    CASE WHEN var_name LIKE '$$%' THEN 'global' ELSE 'local' END as Variable_Scope,
+    'read' as Usage_Type,
+    'auto_enter_calc' as Context_Type,
+    f.Field_UUID as Context_UUID,
+    f.Table_Name || '::' || f.Field_Name as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    f.Table_Name,
+    f.Field_Name,
+    NULL as Calc_Hash,
+    'regex_fallback' as Source,
+    f.File_Name
+FROM FieldsForTables f
+JOIN XMLMetadata m ON f.File_Name = m.Filename
+CROSS JOIN LATERAL unnest(
+    regexp_extract_all(f.AE_Calc_Text, '\$\$?[a-zA-Z_][a-zA-Z0-9_]*')
+) as t(var_name)
+WHERE m.Has_DDR_INFO = 'False'
+  AND f.AE_Calc_Text IS NOT NULL;
+
+-- 7d: Regex-Variablen aus CustomFunction-Formeln (nur Dateien ohne DDR)
+INSERT INTO VariableUsages
+SELECT
+    var_name as Variable_Name,
+    CASE WHEN var_name LIKE '$$%' THEN 'global' ELSE 'local' END as Variable_Scope,
+    'read' as Usage_Type,
+    'custom_function' as Context_Type,
+    ccf.CF_UUID as Context_UUID,
+    ccf.CF_Name as Context_Name,
+    NULL as Script_Name,
+    NULL as Script_UUID,
+    NULL as Step_Index,
+    NULL as Table_Name,
+    NULL as Field_Name,
+    NULL as Calc_Hash,
+    'regex_fallback' as Source,
+    ccf.File_Name
+FROM CalcsForCustomFunctions ccf
+JOIN XMLMetadata m ON ccf.File_Name = m.Filename
+CROSS JOIN LATERAL unnest(
+    regexp_extract_all(ccf.Calculation_Code, '\$\$?[a-zA-Z_][a-zA-Z0-9_]*')
+) as t(var_name)
+WHERE m.Has_DDR_INFO = 'False'
+  AND ccf.Calculation_Code IS NOT NULL;
+
+
+-- ========================================
+-- A.8: VariablesCatalog (Aggregation)
+-- ========================================
+
+DROP TABLE IF EXISTS VariablesCatalog;
+
+CREATE TABLE VariablesCatalog AS
+SELECT
+    Variable_Name,
+    Variable_Scope,
+    CASE Variable_Scope
+        WHEN 'local' THEN Variable_Name
+        WHEN 'global' THEN Variable_Name
+        WHEN 'superglobal' THEN '$$$' || regexp_replace(Variable_Name, '^\$+', '')
+        ELSE Variable_Name
+    END as Display_Name,
+    regexp_replace(Variable_Name, '^\$+', '') as Normalized_Name,
+    COUNT(*) FILTER (WHERE Usage_Type = 'set') as Set_Count,
+    COUNT(*) FILTER (WHERE Usage_Type = 'read') as Read_Count,
+    COUNT(DISTINCT Script_Name) as Script_Count,
+    COUNT(DISTINCT File_Name) as File_Count,
+    array_agg(DISTINCT File_Name ORDER BY File_Name) as Files,
+    first(Context_Name) as First_Seen_Context,
+    Variable_Name LIKE '% %' as Has_Spaces,
+    CASE WHEN bool_or(Source = 'ddr_chunk') THEN 'ddr'
+         WHEN bool_or(Source IN ('set_variable_step', 'target_variable_step')) THEN 'step'
+         WHEN bool_or(Source = 'mbs_variable_call') THEN 'mbs'
+         WHEN bool_or(Source = 'merge_variable') THEN 'merge'
+         WHEN bool_or(Source = 'script_trigger_param') THEN 'trigger'
+         ELSE 'regex'
+    END as Source_Reliability,
+    mode(File_Name) as File_Name
+FROM VariableUsages
+GROUP BY Variable_Name, Variable_Scope;
+
+-- Indizes für VariableUsages/VariablesCatalog
+CREATE INDEX IF NOT EXISTS idx_varusages_name ON VariableUsages(Variable_Name);
+CREATE INDEX IF NOT EXISTS idx_varusages_scope ON VariableUsages(Variable_Scope);
+CREATE INDEX IF NOT EXISTS idx_varusages_context ON VariableUsages(Context_UUID);
+CREATE INDEX IF NOT EXISTS idx_varusages_file ON VariableUsages(File_Name);
+CREATE INDEX IF NOT EXISTS idx_varcatalog_scope ON VariablesCatalog(Variable_Scope);
+CREATE INDEX IF NOT EXISTS idx_varcatalog_file ON VariablesCatalog(File_Name);
+
+-- Variablen-Parser Statistik
+SELECT '=== Variablen-Parser Ergebnis ===' as Info;
+
+SELECT Source, COUNT(*) as Anzahl_Usages
+FROM VariableUsages GROUP BY Source ORDER BY Anzahl_Usages DESC;
+
+SELECT
+    'Gesamt VariableUsages' as Metrik, COUNT(*)::VARCHAR as Wert FROM VariableUsages
+UNION ALL SELECT 'Gesamt VariablesCatalog', COUNT(*)::VARCHAR FROM VariablesCatalog
+UNION ALL SELECT 'Davon global', COUNT(*)::VARCHAR FROM VariablesCatalog WHERE Variable_Scope = 'global'
+UNION ALL SELECT 'Davon lokal', COUNT(*)::VARCHAR FROM VariablesCatalog WHERE Variable_Scope = 'local'
+UNION ALL SELECT 'Davon superglobal', COUNT(*)::VARCHAR FROM VariablesCatalog WHERE Variable_Scope = 'superglobal'
+UNION ALL SELECT 'Davon let_local', COUNT(*)::VARCHAR FROM VariablesCatalog WHERE Variable_Scope = 'let_local';
+
+
+-- ############################################################
+-- Phase B: ObjectCatalog
+-- ############################################################
+
+-- ========================================
+-- ObjectCatalog - Universelle Objektsuche
+-- ========================================
+-- Aggregiert ALLE Objekte aus allen 25 Tabellen
+-- Ermöglicht schnelle Suche über alle Objekttypen hinweg
+
+CREATE OR REPLACE TABLE ObjectCatalog AS
+
+-- 1. BaseTableCatalog (Base Tables)
+SELECT
+    BT_UUID as Object_UUID,
+    'BaseTable' as Object_Type,
+    BT_Name as Object_Name,
+    File_Name,
+    'BaseTableCatalog' as Source_Table,
+    BT_ID as Object_ID
+FROM BaseTableCatalog
+
+UNION ALL
+
+-- 2. TableOccurrenceCatalog (Table Occurrences)
+SELECT
+    TO_UUID as Object_UUID,
+    'TableOccurrence' as Object_Type,
+    TO_Name as Object_Name,
+    File_Name,
+    'TableOccurrenceCatalog' as Source_Table,
+    TO_ID as Object_ID
+FROM TableOccurrenceCatalog
+
+UNION ALL
+
+-- 3. RelationshipCatalog (Relationships)
+-- HINWEIS: Relationships haben keine UUID, verwenden Rel_ID + File_Name als Composite Key
+SELECT
+    Rel_ID::VARCHAR || '_' || File_Name as Object_UUID,
+    'Relationship' as Object_Type,
+    Left_TO_Name || ' → ' || Right_TO_Name as Object_Name,
+    File_Name,
+    'RelationshipCatalog' as Source_Table,
+    Rel_ID as Object_ID
+FROM RelationshipCatalog
+
+UNION ALL
+
+-- 4. FieldsForTables (Fields)
+SELECT
+    Field_UUID as Object_UUID,
+    'Field' as Object_Type,
+    Table_Name || '::' || Field_Name as Object_Name,
+    File_Name,
+    'FieldsForTables' as Source_Table,
+    Field_ID as Object_ID
+FROM FieldsForTables
+
+UNION ALL
+
+-- 5. ValueListCatalog (Value Lists)
+SELECT
+    VL_UUID as Object_UUID,
+    'ValueList' as Object_Type,
+    VL_Name as Object_Name,
+    File_Name,
+    'ValueListCatalog' as Source_Table,
+    VL_ID as Object_ID
+FROM ValueListCatalog
+
+UNION ALL
+
+-- 6. CustomFunctionsCatalog (Custom Functions)
+SELECT
+    CF_UUID as Object_UUID,
+    'CustomFunction' as Object_Type,
+    CF_Name as Object_Name,
+    File_Name,
+    'CustomFunctionsCatalog' as Source_Table,
+    CF_ID as Object_ID
+FROM CustomFunctionsCatalog
+
+UNION ALL
+
+-- 7. ScriptCatalog (Scripts - ohne Folders und Separators)
+SELECT
+    Script_UUID as Object_UUID,
+    'Script' as Object_Type,
+    Script_Name as Object_Name,
+    File_Name,
+    'ScriptCatalog' as Source_Table,
+    Script_ID as Object_ID
+FROM ScriptCatalog
+WHERE (Folder_Type IS NULL OR Folder_Type = 'False')
+  AND NOT Is_Separator
+
+UNION ALL
+
+-- 8. StepsForScripts (Script Steps)
+SELECT
+    Step_UUID as Object_UUID,
+    'ScriptStep' as Object_Type,
+    Script_Name || ' [' || Step_Index || '] ' || Step_Name as Object_Name,
+    File_Name,
+    'StepsForScripts' as Source_Table,
+    Step_ID as Object_ID
+FROM StepsForScripts
+
+UNION ALL
+
+-- 9. Layouts (Layouts)
+SELECT
+    L_UUID as Object_UUID,
+    'Layout' as Object_Type,
+    L_Name as Object_Name,
+    File_Name,
+    'Layouts' as Source_Table,
+    L_ID as Object_ID
+FROM Layouts
+
+UNION ALL
+
+-- 10. LayoutParts (Layout Parts)
+-- HINWEIS: LayoutParts haben keine UUID, verwenden Layout_ID + Part_Kind + File_Name
+SELECT
+    Layout_ID::VARCHAR || '_' || Part_Kind::VARCHAR || '_' || File_Name as Object_UUID,
+    'LayoutPart' as Object_Type,
+    Layout_Name || ' [' || Part_Type || ']' as Object_Name,
+    File_Name,
+    'LayoutParts' as Source_Table,
+    Layout_ID as Object_ID
+FROM LayoutParts
+
+UNION ALL
+
+-- 11. LayoutObjects (Layout Objects)
+SELECT
+    Object_UUID as Object_UUID,
+    'LayoutObject' as Object_Type,
+    COALESCE(Object_Name, Object_Type || ' #' || Object_ID) as Object_Name,
+    File_Name,
+    'LayoutObjects' as Source_Table,
+    Object_ID as Object_ID
+FROM LayoutObjects
+
+UNION ALL
+
+-- 12. AccountsCatalog (Accounts)
+SELECT
+    Account_UUID as Object_UUID,
+    'Account' as Object_Type,
+    COALESCE(Account_Name, Description) as Object_Name,
+    File_Name,
+    'AccountsCatalog' as Source_Table,
+    Account_ID as Object_ID
+FROM AccountsCatalog
+
+UNION ALL
+
+-- 13. PrivilegeSetsCatalog (Privilege Sets)
+SELECT
+    PrivilegeSet_UUID as Object_UUID,
+    'PrivilegeSet' as Object_Type,
+    PrivilegeSet_Name as Object_Name,
+    File_Name,
+    'PrivilegeSetsCatalog' as Source_Table,
+    PrivilegeSet_ID as Object_ID
+FROM PrivilegeSetsCatalog
+
+UNION ALL
+
+-- 14. DDR_ScriptSteps (DDR Script Steps - optional)
+SELECT
+    Step_UUID as Object_UUID,
+    'DDR_ScriptStep' as Object_Type,
+    Step_Text as Object_Name,
+    File_Name,
+    'DDR_ScriptSteps' as Source_Table,
+    NULL as Object_ID
+FROM DDR_ScriptSteps
+
+UNION ALL
+
+-- 15. DDR_Calculations (DDR Calculations - optional)
+SELECT
+    Calc_UUID as Object_UUID,
+    'DDR_Calculation' as Object_Type,
+    'Calculation ' || Calc_Hash as Object_Name,
+    File_Name,
+    'DDR_Calculations' as Source_Table,
+    NULL as Object_ID
+FROM DDR_Calculations
+WHERE Chunk_Index = 1  -- Nur erste Chunk, um Duplikate zu vermeiden
+
+UNION ALL
+
+-- 16. PasteIndexList (Paste Index Objects)
+SELECT
+    Object_ID::VARCHAR || '_' || File_Name as Object_UUID,
+    'PasteIndexObject' as Object_Type,
+    'Paste Object #' || Object_ID as Object_Name,
+    File_Name,
+    'PasteIndexList' as Source_Table,
+    Object_ID as Object_ID
+FROM PasteIndexList
+
+UNION ALL
+
+-- 17. BaseDirectoryCatalog (Base Directories)
+SELECT
+    BD_UUID as Object_UUID,
+    'BaseDirectory' as Object_Type,
+    BD_Name as Object_Name,
+    File_Name,
+    'BaseDirectoryCatalog' as Source_Table,
+    BD_ID as Object_ID
+FROM BaseDirectoryCatalog
+
+UNION ALL
+
+-- 18. ScriptTriggers (Script Triggers)
+SELECT
+    Trigger_ID::VARCHAR || '_' || File_Name as Object_UUID,
+    'ScriptTrigger' as Object_Type,
+    Trigger_Action || ' → ' || Script_Name as Object_Name,
+    File_Name,
+    'ScriptTriggers' as Source_Table,
+    Trigger_ID as Object_ID
+FROM ScriptTriggers
+
+UNION ALL
+
+-- 19. ExtendedPrivilegesCatalog (Extended Privileges)
+SELECT
+    EP_UUID as Object_UUID,
+    'ExtendedPrivilege' as Object_Type,
+    EP_Name as Object_Name,
+    File_Name,
+    'ExtendedPrivilegesCatalog' as Source_Table,
+    EP_ID as Object_ID
+FROM ExtendedPrivilegesCatalog
+
+UNION ALL
+
+-- 20. CustomMenuCatalog (Custom Menus)
+SELECT
+    Menu_UUID as Object_UUID,
+    'CustomMenu' as Object_Type,
+    Menu_Name as Object_Name,
+    File_Name,
+    'CustomMenuCatalog' as Source_Table,
+    Menu_ID as Object_ID
+FROM CustomMenuCatalog
+
+UNION ALL
+
+-- 21. ThemeCatalog (Themes)
+SELECT
+    Theme_UUID as Object_UUID,
+    'Theme' as Object_Type,
+    Theme_Name as Object_Name,
+    File_Name,
+    'ThemeCatalog' as Source_Table,
+    Theme_ID as Object_ID
+FROM ThemeCatalog
+
+UNION ALL
+
+-- 22. ExternalDataSourceCatalog (External Data Sources)
+SELECT
+    DS_UUID as Object_UUID,
+    'ExternalDataSource' as Object_Type,
+    DS_Name as Object_Name,
+    File_Name,
+    'ExternalDataSourceCatalog' as Source_Table,
+    DS_ID as Object_ID
+FROM ExternalDataSourceCatalog
+
+UNION ALL
+
+-- 23. VariablesCatalog (alle Variablen)
+SELECT
+    md5(Variable_Name || '::' || File_Name) as Object_UUID,
+    'Variable' as Object_Type,
+    Display_Name as Object_Name,
+    File_Name,
+    'VariablesCatalog' as Source_Table,
+    NULL as Object_ID
+FROM VariablesCatalog
+WHERE Variable_Scope IN ('global', 'local', 'superglobal');
+
+-- Indexes für ObjectCatalog
+CREATE INDEX idx_objectcatalog_type ON ObjectCatalog(Object_Type);
+CREATE INDEX idx_objectcatalog_file ON ObjectCatalog(File_Name);
+CREATE INDEX idx_objectcatalog_name ON ObjectCatalog(Object_Name);
+CREATE INDEX idx_objectcatalog_composite ON ObjectCatalog(Object_Type, File_Name);
+
+
+-- ========================================
+-- ObjectLinks - Verknüpfungen zwischen Objekten
+-- ========================================
+-- Extrahiert alle operationalen Links aus den Basis-Tabellen
+-- Ermöglicht Cross-File Abhängigkeitsanalyse
+--
+-- WICHTIG: Is_Cross_File wird durch JOIN mit ObjectCatalog berechnet,
+-- um die tatsächlichen File_Names der Source- und Target-Objekte zu vergleichen.
+
+CREATE OR REPLACE TABLE ObjectLinks AS
+
+-- 1. Relationships → Table Occurrences (Left)
+SELECT
+    rc.Rel_ID::VARCHAR || '_' || rc.File_Name as Source_UUID,
+    'Relationship' as Source_Type,
+    rc.Left_TO_UUID as Target_UUID,
+    'TableOccurrence' as Target_Type,
+    'operational' as Link_Type,
+    'left_table' as Link_Role,
+    rc.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (rc.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM RelationshipCatalog rc
+LEFT JOIN ObjectCatalog oc_target ON rc.Left_TO_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'TableOccurrence'
+
+UNION ALL
+
+-- 2. Relationships → Table Occurrences (Right)
+SELECT
+    rc.Rel_ID::VARCHAR || '_' || rc.File_Name as Source_UUID,
+    'Relationship' as Source_Type,
+    rc.Right_TO_UUID as Target_UUID,
+    'TableOccurrence' as Target_Type,
+    'operational' as Link_Type,
+    'right_table' as Link_Role,
+    rc.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (rc.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM RelationshipCatalog rc
+LEFT JOIN ObjectCatalog oc_target ON rc.Right_TO_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'TableOccurrence'
+
+UNION ALL
+
+-- 3. Relationships → Fields (Left Field)
+SELECT
+    rc.Rel_ID::VARCHAR || '_' || rc.File_Name as Source_UUID,
+    'Relationship' as Source_Type,
+    rc.Left_Field_UUID as Target_UUID,
+    'Field' as Target_Type,
+    'operational' as Link_Type,
+    'left_field' as Link_Role,
+    rc.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (rc.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM RelationshipCatalog rc
+LEFT JOIN ObjectCatalog oc_target ON rc.Left_Field_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Field'
+
+UNION ALL
+
+-- 4. Relationships → Fields (Right Field)
+SELECT
+    rc.Rel_ID::VARCHAR || '_' || rc.File_Name as Source_UUID,
+    'Relationship' as Source_Type,
+    rc.Right_Field_UUID as Target_UUID,
+    'Field' as Target_Type,
+    'operational' as Link_Type,
+    'right_field' as Link_Role,
+    rc.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (rc.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM RelationshipCatalog rc
+LEFT JOIN ObjectCatalog oc_target ON rc.Right_Field_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Field'
+
+UNION ALL
+
+-- 5. Fields → Base Tables
+SELECT
+    f.Field_UUID as Source_UUID,
+    'Field' as Source_Type,
+    f.Table_UUID as Target_UUID,
+    'BaseTable' as Target_Type,
+    'operational' as Link_Type,
+    'parent_table' as Link_Role,
+    f.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (f.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM FieldsForTables f
+LEFT JOIN ObjectCatalog oc_target ON f.Table_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'BaseTable'
+
+UNION ALL
+
+-- 6. Table Occurrences → Base Tables
+SELECT
+    toc.TO_UUID as Source_UUID,
+    'TableOccurrence' as Source_Type,
+    toc.BT_UUID as Target_UUID,
+    'BaseTable' as Target_Type,
+    'operational' as Link_Type,
+    'base_table' as Link_Role,
+    toc.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (toc.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM TableOccurrenceCatalog toc
+LEFT JOIN ObjectCatalog oc_target ON toc.BT_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'BaseTable'
+
+UNION ALL
+
+-- 7. Table Occurrences → External Data Sources
+SELECT
+    toc.TO_UUID as Source_UUID,
+    'TableOccurrence' as Source_Type,
+    toc.DS_UUID as Target_UUID,
+    'ExternalDataSource' as Target_Type,
+    'operational' as Link_Type,
+    'data_source' as Link_Role,
+    toc.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (toc.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM TableOccurrenceCatalog toc
+LEFT JOIN ObjectCatalog oc_target ON toc.DS_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'ExternalDataSource'
+WHERE toc.DS_UUID IS NOT NULL
+
+UNION ALL
+
+-- 8. Layouts → Table Occurrences
+SELECT
+    l.L_UUID as Source_UUID,
+    'Layout' as Source_Type,
+    (SELECT TO_UUID FROM TableOccurrenceCatalog WHERE TO_Name = l.L_TO_Name AND File_Name = l.File_Name LIMIT 1) as Target_UUID,
+    'TableOccurrence' as Target_Type,
+    'operational' as Link_Type,
+    'context_table' as Link_Role,
+    l.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (l.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM Layouts l
+LEFT JOIN ObjectCatalog oc_target ON (SELECT TO_UUID FROM TableOccurrenceCatalog WHERE TO_Name = l.L_TO_Name AND File_Name = l.File_Name LIMIT 1) = oc_target.Object_UUID AND oc_target.Object_Type = 'TableOccurrence'
+
+UNION ALL
+
+-- 9. Layout Objects → Layouts (Parent)
+SELECT
+    lo.Object_UUID as Source_UUID,
+    'LayoutObject' as Source_Type,
+    (SELECT L_UUID FROM Layouts WHERE L_ID = lo.Layout_ID AND File_Name = lo.File_Name LIMIT 1) as Target_UUID,
+    'Layout' as Target_Type,
+    'structural' as Link_Type,
+    'parent_layout' as Link_Role,
+    lo.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (lo.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM LayoutObjects lo
+LEFT JOIN ObjectCatalog oc_target ON (SELECT L_UUID FROM Layouts WHERE L_ID = lo.Layout_ID AND File_Name = lo.File_Name LIMIT 1) = oc_target.Object_UUID AND oc_target.Object_Type = 'Layout'
+
+UNION ALL
+
+-- 10. Layout Objects → Layout Objects (Parent-Child, nur wenn verschachtelt)
+SELECT
+    child.Object_UUID as Source_UUID,
+    'LayoutObject' as Source_Type,
+    (SELECT Object_UUID FROM LayoutObjects parent WHERE parent.Object_ID = child.Parent_Object_ID AND parent.Layout_ID = child.Layout_ID AND parent.File_Name = child.File_Name LIMIT 1) as Target_UUID,
+    'LayoutObject' as Target_Type,
+    'structural' as Link_Type,
+    'parent_object' as Link_Role,
+    child.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (child.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM LayoutObjects child
+LEFT JOIN ObjectCatalog oc_target ON (SELECT Object_UUID FROM LayoutObjects parent WHERE parent.Object_ID = child.Parent_Object_ID AND parent.Layout_ID = child.Layout_ID AND parent.File_Name = child.File_Name LIMIT 1) = oc_target.Object_UUID AND oc_target.Object_Type = 'LayoutObject'
+WHERE child.Parent_Object_ID IS NOT NULL
+
+UNION ALL
+
+-- 11. Script Steps → Scripts (Parent)
+SELECT
+    sfs.Step_UUID as Source_UUID,
+    'ScriptStep' as Source_Type,
+    sfs.Script_UUID as Target_UUID,
+    'Script' as Target_Type,
+    'structural' as Link_Type,
+    'parent_script' as Link_Role,
+    sfs.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (sfs.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM StepsForScripts sfs
+LEFT JOIN ObjectCatalog oc_target ON sfs.Script_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Script'
+
+UNION ALL
+
+-- 12. Value Lists → Fields (Field Reference für Value List)
+SELECT
+    ovl.VL_UUID as Source_UUID,
+    'ValueList' as Source_Type,
+    ovl.Field_UUID as Target_UUID,
+    'Field' as Target_Type,
+    'operational' as Link_Type,
+    'source_field' as Link_Role,
+    ovl.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (ovl.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM OptionsForValueLists ovl
+LEFT JOIN ObjectCatalog oc_target ON ovl.Field_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Field'
+WHERE ovl.Field_UUID IS NOT NULL
+
+UNION ALL
+
+-- 13. Value Lists → Table Occurrences
+SELECT
+    ovl.VL_UUID as Source_UUID,
+    'ValueList' as Source_Type,
+    ovl.TO_UUID as Target_UUID,
+    'TableOccurrence' as Target_Type,
+    'operational' as Link_Type,
+    'source_table' as Link_Role,
+    ovl.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (ovl.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM OptionsForValueLists ovl
+LEFT JOIN ObjectCatalog oc_target ON ovl.TO_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'TableOccurrence'
+WHERE ovl.TO_UUID IS NOT NULL
+
+UNION ALL
+
+-- 14. Custom Functions → Custom Functions (via CalcsForCustomFunctions)
+-- HINWEIS: Keine direkte Verknüpfung in diesem Schema, könnte über DDR_Calculations analysiert werden
+
+-- 15. Script → Script (Perform Script Steps)
+-- Extrahiert aus XMLStepReferences (Python XML-Extraktor, umgeht webbed JSON-Bugs)
+SELECT
+    xsr.Script_UUID as Source_UUID,
+    'Script' as Source_Type,
+    xsr.Ref_UUID as Target_UUID,
+    'Script' as Target_Type,
+    'operational' as Link_Type,
+    'calls_script' as Link_Role,
+    xsr.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (xsr.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM XMLStepReferences xsr
+LEFT JOIN ObjectCatalog oc_target ON xsr.Ref_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Script'
+WHERE xsr.Ref_Type = 'script'
+
+UNION ALL
+
+-- 16. Script → Field (Set Field Steps)
+-- Extrahiert aus XMLStepReferences (Python XML-Extraktor)
+SELECT
+    xsr.Script_UUID as Source_UUID,
+    'Script' as Source_Type,
+    xsr.Ref_UUID as Target_UUID,
+    'Field' as Target_Type,
+    'operational' as Link_Type,
+    'sets_field' as Link_Role,
+    xsr.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (xsr.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM XMLStepReferences xsr
+LEFT JOIN ObjectCatalog oc_target ON xsr.Ref_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Field'
+WHERE xsr.Step_Name = 'Set Field'
+  AND xsr.Ref_Type = 'field'
+
+UNION ALL
+
+-- 17. Script → Field (Go to Field / Go to Related Record Steps)
+-- Extrahiert aus XMLStepReferences (Python XML-Extraktor)
+SELECT
+    xsr.Script_UUID as Source_UUID,
+    'Script' as Source_Type,
+    xsr.Ref_UUID as Target_UUID,
+    'Field' as Target_Type,
+    'operational' as Link_Type,
+    'navigates_to_field' as Link_Role,
+    xsr.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (xsr.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM XMLStepReferences xsr
+LEFT JOIN ObjectCatalog oc_target ON xsr.Ref_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Field'
+WHERE xsr.Step_Name IN ('Go to Field', 'Go to Related Record')
+  AND xsr.Ref_Type = 'field'
+
+UNION ALL
+
+-- 18. Script Triggers → Scripts
+SELECT
+    st.Trigger_ID::VARCHAR || '_' || st.File_Name as Source_UUID,
+    'ScriptTrigger' as Source_Type,
+    st.Script_UUID as Target_UUID,
+    'Script' as Target_Type,
+    'operational' as Link_Type,
+    'trigger_script' as Link_Role,
+    st.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (st.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM ScriptTriggers st
+LEFT JOIN ObjectCatalog oc_target ON st.Script_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Script'
+
+UNION ALL
+
+-- 19. Accounts → Privilege Sets
+SELECT
+    ac.Account_UUID as Source_UUID,
+    'Account' as Source_Type,
+    (SELECT PrivilegeSet_UUID FROM PrivilegeSetsCatalog WHERE PrivilegeSet_Name = ac.PrivilegeSet_Name AND File_Name = ac.File_Name LIMIT 1) as Target_UUID,
+    'PrivilegeSet' as Target_Type,
+    'operational' as Link_Type,
+    'privilege_set' as Link_Role,
+    ac.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (ac.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM AccountsCatalog ac
+LEFT JOIN ObjectCatalog oc_target ON (SELECT PrivilegeSet_UUID FROM PrivilegeSetsCatalog WHERE PrivilegeSet_Name = ac.PrivilegeSet_Name AND File_Name = ac.File_Name LIMIT 1) = oc_target.Object_UUID AND oc_target.Object_Type = 'PrivilegeSet'
+
+UNION ALL
+
+-- 20. LayoutObject → Field (Edit Box, Drop-down List, etc.)
+-- Extrahiert aus XMLLayoutReferences (Python XML-Extraktor, umgeht webbed JSON-Bugs)
+SELECT
+    xlr.Object_UUID as Source_UUID,
+    'LayoutObject' as Source_Type,
+    xlr.Ref_UUID as Target_UUID,
+    'Field' as Target_Type,
+    'operational' as Link_Type,
+    'displays_field' as Link_Role,
+    xlr.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (xlr.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM XMLLayoutReferences xlr
+LEFT JOIN ObjectCatalog oc_target ON xlr.Ref_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Field'
+WHERE xlr.Ref_Type = 'field'
+
+UNION ALL
+
+-- 21. LayoutObject → Script (Button/GroupedButton/PopoverButton Actions)
+-- Extrahiert aus XMLLayoutReferences (Python XML-Extraktor, findet auch GroupedButton)
+SELECT
+    xlr.Object_UUID as Source_UUID,
+    'LayoutObject' as Source_Type,
+    xlr.Ref_UUID as Target_UUID,
+    'Script' as Target_Type,
+    'operational' as Link_Type,
+    'triggers_script' as Link_Role,
+    xlr.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (xlr.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM XMLLayoutReferences xlr
+LEFT JOIN ObjectCatalog oc_target ON xlr.Ref_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Script'
+WHERE xlr.Ref_Type = 'script'
+
+UNION ALL
+
+-- 22. LayoutObject → ValueList (Field Display)
+-- Extrahiert aus XMLLayoutReferences (Ref_Type = 'valuelist')
+SELECT
+    xlr.Object_UUID as Source_UUID,
+    'LayoutObject' as Source_Type,
+    xlr.Ref_UUID as Target_UUID,
+    'ValueList' as Target_Type,
+    'operational' as Link_Type,
+    'uses_valuelist' as Link_Role,
+    xlr.File_Name as Source_File,
+    COALESCE(oc_target.File_Name, xlr.File_Name) as Target_File,
+    (xlr.File_Name != COALESCE(oc_target.File_Name, xlr.File_Name)) as Is_Cross_File
+FROM XMLLayoutReferences xlr
+LEFT JOIN ObjectCatalog oc_target ON xlr.Ref_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'ValueList'
+WHERE xlr.Ref_Type = 'valuelist'
+
+UNION ALL
+
+-- 23. Portal → TableOccurrence (Portal Data Source)
+-- Extrahiert aus XMLLayoutReferences (Ref_Type = 'table_occurrence')
+SELECT
+    xlr.Object_UUID as Source_UUID,
+    'LayoutObject' as Source_Type,
+    xlr.Ref_UUID as Target_UUID,
+    'TableOccurrence' as Target_Type,
+    'operational' as Link_Type,
+    'portal_context' as Link_Role,
+    xlr.File_Name as Source_File,
+    COALESCE(oc_target.File_Name, xlr.File_Name) as Target_File,
+    (xlr.File_Name != COALESCE(oc_target.File_Name, xlr.File_Name)) as Is_Cross_File
+FROM XMLLayoutReferences xlr
+LEFT JOIN ObjectCatalog oc_target ON xlr.Ref_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'TableOccurrence'
+WHERE xlr.Ref_Type = 'table_occurrence'
+
+UNION ALL
+
+-- 24. Script → Layout (Go to Layout Steps)
+-- Extrahiert aus XMLStepReferences (Ref_Type = 'layout')
+SELECT
+    xsr.Script_UUID as Source_UUID,
+    'Script' as Source_Type,
+    xsr.Ref_UUID as Target_UUID,
+    'Layout' as Target_Type,
+    'operational' as Link_Type,
+    'navigates_to_layout' as Link_Role,
+    xsr.File_Name as Source_File,
+    COALESCE(oc_target.File_Name, xsr.File_Name) as Target_File,
+    (xsr.File_Name != COALESCE(oc_target.File_Name, xsr.File_Name)) as Is_Cross_File
+FROM XMLStepReferences xsr
+LEFT JOIN ObjectCatalog oc_target ON xsr.Ref_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Layout'
+WHERE xsr.Ref_Type = 'layout'
+
+UNION ALL
+
+-- 25. Field → Field (Lookup-Quelle)
+-- Link: Zielfeld hat Lookup auf Quellfeld
+SELECT
+    f.Field_UUID as Source_UUID,
+    'Field' as Source_Type,
+    f.Lookup_Field_UUID as Target_UUID,
+    'Field' as Target_Type,
+    'operational' as Link_Type,
+    'lookup_source' as Link_Role,
+    f.File_Name as Source_File,
+    COALESCE(oc_target.File_Name, f.File_Name) as Target_File,
+    (f.File_Name != COALESCE(oc_target.File_Name, f.File_Name)) as Is_Cross_File
+FROM FieldsForTables f
+LEFT JOIN ObjectCatalog oc_target ON f.Lookup_Field_UUID = oc_target.Object_UUID
+WHERE f.AutoEnter_Type = 'Looked_up'
+  AND f.Lookup_Field_UUID IS NOT NULL
+
+UNION ALL
+
+-- 23. Field → TableOccurrence (Lookup-Beziehung)
+-- Link: Zielfeld nutzt diese Beziehung für den Lookup
+SELECT
+    f.Field_UUID as Source_UUID,
+    'Field' as Source_Type,
+    f.Lookup_TO_UUID as Target_UUID,
+    'TableOccurrence' as Target_Type,
+    'operational' as Link_Type,
+    'lookup_relationship' as Link_Role,
+    f.File_Name as Source_File,
+    COALESCE(oc_target.File_Name, f.File_Name) as Target_File,
+    (f.File_Name != COALESCE(oc_target.File_Name, f.File_Name)) as Is_Cross_File
+FROM FieldsForTables f
+LEFT JOIN ObjectCatalog oc_target ON f.Lookup_TO_UUID = oc_target.Object_UUID
+WHERE f.AutoEnter_Type = 'Looked_up'
+  AND f.Lookup_TO_UUID IS NOT NULL
+
+UNION ALL
+
+-- ========================================
+-- Variable Links (24-29)
+-- ========================================
+
+-- 24. Script → Variable (sets_variable)
+-- Script setzt eine Variable via Set Variable Schritt
+SELECT DISTINCT
+    vu.Script_UUID as Source_UUID,
+    'Script' as Source_Type,
+    md5(vu.Variable_Name || '::' || vu.File_Name) as Target_UUID,
+    'Variable' as Target_Type,
+    'operational' as Link_Type,
+    'sets_variable' as Link_Role,
+    vu.File_Name as Source_File,
+    vc.File_Name as Target_File,
+    (vu.File_Name != vc.File_Name) as Is_Cross_File
+FROM VariableUsages vu
+JOIN VariablesCatalog vc ON vu.Variable_Name = vc.Variable_Name AND vu.Variable_Scope = vc.Variable_Scope
+WHERE vu.Usage_Type = 'set'
+  AND vu.Context_Type = 'script_step'
+  AND vu.Variable_Scope IN ('global', 'local', 'superglobal')
+  AND vu.Script_UUID IS NOT NULL
+
+UNION ALL
+
+-- 25. Script → Variable (reads_variable)
+-- Script-Formel referenziert eine Variable
+SELECT DISTINCT
+    vu.Script_UUID as Source_UUID,
+    'Script' as Source_Type,
+    md5(vu.Variable_Name || '::' || vc.File_Name) as Target_UUID,
+    'Variable' as Target_Type,
+    'operational' as Link_Type,
+    'reads_variable' as Link_Role,
+    vu.File_Name as Source_File,
+    vc.File_Name as Target_File,
+    (vu.File_Name != vc.File_Name) as Is_Cross_File
+FROM VariableUsages vu
+JOIN VariablesCatalog vc ON vu.Variable_Name = vc.Variable_Name AND vu.Variable_Scope = vc.Variable_Scope
+WHERE vu.Usage_Type = 'read'
+  AND vu.Context_Type = 'script_step'
+  AND vu.Variable_Scope IN ('global', 'local', 'superglobal')
+  AND vu.Script_UUID IS NOT NULL
+
+UNION ALL
+
+-- 26. Field → Variable (reads_variable)
+-- Calculated/AutoEnter-Formel referenziert eine Variable
+SELECT DISTINCT
+    vu.Context_UUID as Source_UUID,
+    'Field' as Source_Type,
+    md5(vu.Variable_Name || '::' || vc.File_Name) as Target_UUID,
+    'Variable' as Target_Type,
+    'operational' as Link_Type,
+    'reads_variable' as Link_Role,
+    vu.File_Name as Source_File,
+    vc.File_Name as Target_File,
+    (vu.File_Name != vc.File_Name) as Is_Cross_File
+FROM VariableUsages vu
+JOIN VariablesCatalog vc ON vu.Variable_Name = vc.Variable_Name AND vu.Variable_Scope = vc.Variable_Scope
+WHERE vu.Usage_Type = 'read'
+  AND vu.Context_Type IN ('calculation', 'auto_enter_calc')
+  AND vu.Variable_Scope IN ('global', 'local', 'superglobal')
+  AND vu.Context_UUID IS NOT NULL
+
+UNION ALL
+
+-- 27. CustomFunction → Variable (reads_variable / sets_variable)
+-- CF-Formel referenziert oder setzt eine Variable (z.B. MBS Superglobale)
+SELECT DISTINCT
+    vu.Context_UUID as Source_UUID,
+    'CustomFunction' as Source_Type,
+    md5(vu.Variable_Name || '::' || vc.File_Name) as Target_UUID,
+    'Variable' as Target_Type,
+    'operational' as Link_Type,
+    CASE vu.Usage_Type WHEN 'set' THEN 'sets_variable' ELSE 'reads_variable' END as Link_Role,
+    vu.File_Name as Source_File,
+    vc.File_Name as Target_File,
+    (vu.File_Name != vc.File_Name) as Is_Cross_File
+FROM VariableUsages vu
+JOIN VariablesCatalog vc ON vu.Variable_Name = vc.Variable_Name AND vu.Variable_Scope = vc.Variable_Scope
+WHERE vu.Context_Type = 'custom_function'
+  AND vu.Variable_Scope IN ('global', 'local', 'superglobal')
+  AND vu.Context_UUID IS NOT NULL
+
+UNION ALL
+
+-- 28. LayoutObject → Variable (alle Quellen: Merge, Script-Trigger, DDR-Formeln)
+-- merge_variable → displays_variable, alle anderen → reads_variable
+SELECT DISTINCT
+    vu.Context_UUID as Source_UUID,
+    'LayoutObject' as Source_Type,
+    md5(vu.Variable_Name || '::' || vc.File_Name) as Target_UUID,
+    'Variable' as Target_Type,
+    'operational' as Link_Type,
+    CASE vu.Source
+        WHEN 'merge_variable' THEN 'displays_variable'
+        ELSE 'reads_variable'
+    END as Link_Role,
+    vu.File_Name as Source_File,
+    vc.File_Name as Target_File,
+    (vu.File_Name != vc.File_Name) as Is_Cross_File
+FROM VariableUsages vu
+JOIN VariablesCatalog vc ON vu.Variable_Name = vc.Variable_Name AND vu.Variable_Scope = vc.Variable_Scope
+WHERE vu.Context_Type = 'layout_object'
+  AND vu.Variable_Scope IN ('global', 'local')
+  AND vu.Context_UUID IS NOT NULL;
+
+-- Indexes für ObjectLinks
+CREATE INDEX idx_objectlinks_source ON ObjectLinks(Source_UUID);
+CREATE INDEX idx_objectlinks_target ON ObjectLinks(Target_UUID);
+CREATE INDEX idx_objectlinks_type ON ObjectLinks(Link_Type);
+CREATE INDEX idx_objectlinks_composite ON ObjectLinks(Source_Type, Target_Type);
+CREATE INDEX idx_objectlinks_file ON ObjectLinks(Source_File, Target_File);
+CREATE INDEX idx_objectlinks_crossfile ON ObjectLinks(Is_Cross_File);
+
+
+-- ========================================
+-- Statistik-Views für Monitoring
+-- ========================================
+
+-- Object Count per Type and File
+CREATE OR REPLACE VIEW v_object_stats AS
+SELECT
+    Object_Type,
+    File_Name,
+    COUNT(*) as Object_Count
+FROM ObjectCatalog
+GROUP BY Object_Type, File_Name
+ORDER BY Object_Type, File_Name;
+
+-- Link Count per Type
+CREATE OR REPLACE VIEW v_link_stats AS
+SELECT
+    Source_Type,
+    Target_Type,
+    Link_Type,
+    COUNT(*) as Link_Count,
+    SUM(CASE WHEN Is_Cross_File THEN 1 ELSE 0 END) as Cross_File_Links
+FROM ObjectLinks
+GROUP BY Source_Type, Target_Type, Link_Type
+ORDER BY Link_Count DESC;
+
+-- Cross-File Dependencies
+CREATE OR REPLACE VIEW v_cross_file_dependencies AS
+SELECT
+    ol.Source_Type,
+    oc_source.Object_Name as Source_Object,
+    oc_source.File_Name as Source_File,
+    ol.Target_Type,
+    oc_target.Object_Name as Target_Object,
+    oc_target.File_Name as Target_File,
+    ol.Link_Role
+FROM ObjectLinks ol
+JOIN ObjectCatalog oc_source ON ol.Source_UUID = oc_source.Object_UUID
+JOIN ObjectCatalog oc_target ON ol.Target_UUID = oc_target.Object_UUID
+WHERE ol.Is_Cross_File = true
+ORDER BY ol.Source_Type, oc_source.Object_Name;

@@ -1,0 +1,48 @@
+{
+  "name": "@packages/shared",
+  "version": "1.0.0",
+  "description": "Shared types, constants, and API client for FileMaker DuckDB Analysis",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "generate": "npm run generate:types && npm run generate:client",
+    "generate:types": "openapi-typescript openapi.yaml -o generated/types.ts",
+    "generate:client": "node scripts/generate-client.js",
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "clean": "rm -rf dist generated/types.ts generated/client.ts",
+    "lint": "eslint . --ext .ts,.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": "./dist/src/index.js",
+    "./types": "./generated/types.ts",
+    "./client": "./generated/client.ts",
+    "./constants": "./dist/src/constants.js",
+    "./schemas": "./dist/src/schemas/index.js",
+    "./utils": "./dist/src/utils/index.js"
+  },
+  "files": [
+    "dist",
+    "generated",
+    "openapi.yaml"
+  ],
+  "keywords": [
+    "filemaker",
+    "duckdb",
+    "api-client",
+    "typescript",
+    "shared"
+  ],
+  "author": "Marcel Moré",
+  "license": "MIT",
+  "dependencies": {
+    "openapi-fetch": "^0.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "openapi-typescript": "^7.0.0",
+    "typescript": "^5.3.3"
+  }
+}

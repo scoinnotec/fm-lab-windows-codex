@@ -1,0 +1,2177 @@
+/*
+-- DuckDB SQL Script to parse FileMaker XML Catalog
+-- and extract various catalog information into tables.
+
+-- XML File must be converted to UTF-8 encoding beforehand!
+
+-- Version 0.4
+-- Date: 2026-01-14
+*/
+
+
+INSTALL webbed FROM community;
+LOAD webbed;
+
+-- json_escape() Macro entfernt: xml_to_json() wird nicht mehr verwendet.
+-- Stattdessen speichern wir rohes XML (Object_XML, Parameters_XML, Menu_XML, Theme_XML)
+-- und extrahieren Werte direkt per xml_extract_text().
+
+-- Pfad zur XML-Datei. Env-Variable FM_XML_DIR überschreibt den Default
+-- 'xml' (relativ zum aktuellen Arbeitsverzeichnis). Das convert-xml-Skill-
+-- Skript setzt FM_XML_DIR auf ein temporäres Verzeichnis.
+SET file_search_path = COALESCE(NULLIF(getenv('FM_XML_DIR'), ''), 'xml');
+SET VARIABLE fm_xml = 'Test.xml';  -- Wird durch Skill-Script ersetzt
+
+-- maximale Speichergröße für read_xml erhöhen (Standard: 16MB)
+SET VARIABLE max_filesize TO 256000000; -- 256 MB
+
+
+-- ========================================
+-- XML Metadata (Root-Attribut-Informationen)
+-- ========================================
+-- Tabelle für XML-Metadaten aller importierten Dateien
+-- HINWEIS: Diese Daten sind auch in FilesCatalog verfügbar,
+-- XMLMetadata wird aus historischen Gründen beibehalten
+CREATE TABLE IF NOT EXISTS XMLMetadata (
+    Has_DDR_INFO VARCHAR,
+    XML_Version VARCHAR,
+    FileMaker_Version VARCHAR,
+    Filename VARCHAR,
+    File_UUID VARCHAR,
+    Locale VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (File_UUID, File_Name)
+);
+
+-- XMLMetadata befüllen (mit CTE für File_Name)
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO XMLMetadata
+SELECT
+    COALESCE(xml_extract_text(xml, '/FMSaveAsXML/@Has_DDR_INFO')[1], 'False') as Has_DDR_INFO,
+    xml_extract_text(xml, '/FMSaveAsXML/@version')[1] as XML_Version,
+    xml_extract_text(xml, '/FMSaveAsXML/@Source')[1] as FileMaker_Version,
+    xml_extract_text(xml, '/FMSaveAsXML/@File')[1] as Filename,
+    xml_extract_text(xml, '/FMSaveAsXML/@UUID')[1] as File_UUID,
+    xml_extract_text(xml, '/FMSaveAsXML/@locale')[1] as Locale,
+    fn.File_Name as File_Name
+FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+CROSS JOIN filename_normalized fn
+ON CONFLICT (File_UUID, File_Name) DO UPDATE SET
+    Has_DDR_INFO = EXCLUDED.Has_DDR_INFO,
+    XML_Version = EXCLUDED.XML_Version,
+    FileMaker_Version = EXCLUDED.FileMaker_Version,
+    Filename = EXCLUDED.Filename,
+    Locale = EXCLUDED.Locale;
+
+
+-- ========================================
+-- FilesCatalog (Multi-File Support)
+-- ========================================
+-- Tabelle für Metadaten aller importierten FileMaker-Dateien
+-- Wird bei jedem Import aktualisiert (UPSERT)
+CREATE TABLE IF NOT EXISTS FilesCatalog (
+    File_Name VARCHAR PRIMARY KEY,          -- Dateiname ohne .fmp12 Suffix
+    File_FullName VARCHAR,                  -- Dateiname mit .fmp12 Suffix
+    File_UUID VARCHAR UNIQUE,               -- UUID der Datei (aus XML)
+    FileMaker_Version VARCHAR,              -- FileMaker Version (z.B. "ProAdvanced 21.0.2.206")
+    Has_DDR_INFO BOOLEAN DEFAULT FALSE,     -- DDR-Info verfügbar?
+    Import_Timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- Zeitpunkt des letzten Imports
+    XML_Path VARCHAR                        -- Pfad zur XML-Quelldatei
+);
+
+-- FilesCatalog befüllen (UPSERT bei wiederholten Importen)
+INSERT INTO FilesCatalog (File_Name, File_FullName, File_UUID, FileMaker_Version, Has_DDR_INFO, Import_Timestamp, XML_Path)
+SELECT
+    -- File_Name: Ohne Suffix (Primary Key)
+    regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+        '\.fmp12$',
+        ''
+    ) as File_Name,
+
+    -- File_FullName: Mit Suffix (Original aus XML)
+    xml_extract_text(xml, '/FMSaveAsXML/@File')[1] as File_FullName,
+
+    -- Weitere Metadaten aus XML Root-Element
+    xml_extract_text(xml, '/FMSaveAsXML/@UUID')[1] as File_UUID,
+    xml_extract_text(xml, '/FMSaveAsXML/@Source')[1] as FileMaker_Version,
+    COALESCE(xml_extract_text(xml, '/FMSaveAsXML/@Has_DDR_INFO')[1], 'False') = 'True' as Has_DDR_INFO,
+    CURRENT_TIMESTAMP as Import_Timestamp,
+    getvariable('fm_xml') as XML_Path
+FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+ON CONFLICT (File_Name) DO UPDATE SET
+    Import_Timestamp = EXCLUDED.Import_Timestamp,
+    FileMaker_Version = EXCLUDED.FileMaker_Version,
+    Has_DDR_INFO = EXCLUDED.Has_DDR_INFO,
+    XML_Path = EXCLUDED.XML_Path;
+
+
+-- ExternalDataSourceCatalog
+CREATE TABLE IF NOT EXISTS ExternalDataSourceCatalog (
+    DS_ID BIGINT,
+    DS_Name VARCHAR,
+    DS_Type VARCHAR,
+    Path VARCHAR,
+    DS_UUID VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (DS_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO ExternalDataSourceCatalog
+SELECT
+    id AS DS_ID,
+    name AS DS_Name,
+    type AS DS_Type,
+    File.UniversalPathList AS Path,
+    UUID->>'#text' AS DS_UUID,
+    fn.File_Name as File_Name
+FROM read_xml(
+    getvariable('fm_xml'),
+    root_element='ExternalDataSourceCatalog',
+    record_element='ExternalDataSource',
+    max_depth=10,
+    maximum_file_size=getvariable('max_filesize'),
+    columns={
+        'id': 'BIGINT',
+        'name': 'VARCHAR',
+        'type': 'VARCHAR',
+        'File': 'STRUCT(UniversalPathList VARCHAR)',
+        'UUID': 'STRUCT("#text" VARCHAR, "accountName" VARCHAR, "modifications" BIGINT, "timestamp" VARCHAR, "userName" VARCHAR)'
+    }
+)
+CROSS JOIN filename_normalized fn
+ON CONFLICT (DS_UUID, File_Name) DO UPDATE SET
+    DS_ID = EXCLUDED.DS_ID,
+    DS_Name = EXCLUDED.DS_Name,
+    DS_Type = EXCLUDED.DS_Type,
+    Path = EXCLUDED.Path;
+
+
+-- BaseTableCatalog
+CREATE TABLE IF NOT EXISTS BaseTableCatalog (
+    BT_ID BIGINT,
+    BT_Name VARCHAR,
+    BT_UUID VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (BT_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO BaseTableCatalog
+SELECT
+    id AS BT_ID,
+    name AS BT_Name,
+    UUID->>'#text' AS BT_UUID,
+    fn.File_Name as File_Name
+FROM read_xml(
+    getvariable('fm_xml'),
+    root_element='BaseTableCatalog',
+    record_element='BaseTable',
+    maximum_file_size=getvariable('max_filesize'),
+    columns={
+        'id': 'BIGINT',
+        'name': 'VARCHAR',
+        'UUID': 'STRUCT("#text" VARCHAR, "modifications" BIGINT, "userName" VARCHAR, "accountName" VARCHAR, "timestamp" VARCHAR)'
+    }
+)
+CROSS JOIN filename_normalized fn
+ON CONFLICT (BT_UUID, File_Name) DO UPDATE SET
+    BT_ID = EXCLUDED.BT_ID,
+    BT_Name = EXCLUDED.BT_Name;
+
+
+-- TableOccurrenceCatalog
+CREATE TABLE IF NOT EXISTS TableOccurrenceCatalog (
+    TO_ID BIGINT,
+    TO_Name VARCHAR,
+    TO_Type VARCHAR,
+    TO_UUID VARCHAR,
+    DS_ID BIGINT,
+    DS_Name VARCHAR,
+    DS_UUID VARCHAR,
+    BT_ID BIGINT,
+    BT_Name VARCHAR,
+    BT_UUID VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (TO_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO TableOccurrenceCatalog
+SELECT
+    id AS TO_ID,
+    name AS TO_Name,
+    type AS TO_Type,
+    UUID->>'#text' AS TO_UUID,
+    BaseTableSourceReference.DataSourceReference.id AS DS_ID,
+    BaseTableSourceReference.DataSourceReference.name AS DS_Name,
+    BaseTableSourceReference.DataSourceReference.UUID AS DS_UUID,
+    BaseTableSourceReference.BaseTableReference.id AS BT_ID,
+    BaseTableSourceReference.BaseTableReference.name AS BT_Name,
+    BaseTableSourceReference.BaseTableReference.UUID AS BT_UUID,
+    fn.File_Name as File_Name
+FROM read_xml(
+    getvariable('fm_xml'),
+    root_element='TableOccurrenceCatalog',
+    record_element='TableOccurrence',
+    max_depth=10,
+    maximum_file_size=getvariable('max_filesize'),
+    columns={
+        'id': 'BIGINT',
+        'name': 'VARCHAR',
+        'type': 'VARCHAR',
+        'UUID': 'STRUCT("#text" VARCHAR, "accountName" VARCHAR, "modifications" BIGINT, "timestamp" VARCHAR, "userName" VARCHAR)',
+        'BaseTableSourceReference': 'STRUCT(
+            "DataSourceReference" STRUCT(
+                "id" BIGINT,
+                "name" VARCHAR,
+                "UUID" VARCHAR
+            ),
+            "BaseTableReference" STRUCT(
+                "id" BIGINT,
+                "name" VARCHAR,
+                "UUID" VARCHAR
+            )
+        )'
+    }
+)
+CROSS JOIN filename_normalized fn
+ON CONFLICT (TO_UUID, File_Name) DO UPDATE SET
+    TO_ID = EXCLUDED.TO_ID,
+    TO_Name = EXCLUDED.TO_Name,
+    TO_Type = EXCLUDED.TO_Type,
+    DS_ID = EXCLUDED.DS_ID,
+    DS_Name = EXCLUDED.DS_Name,
+    DS_UUID = EXCLUDED.DS_UUID,
+    BT_ID = EXCLUDED.BT_ID,
+    BT_Name = EXCLUDED.BT_Name,
+    BT_UUID = EXCLUDED.BT_UUID;
+
+
+-- RelationshipCatalog
+CREATE TABLE IF NOT EXISTS RelationshipCatalog (
+    Rel_ID BIGINT,
+    Left_TO_Name VARCHAR,
+    Left_TO_ID BIGINT,
+    Left_TO_UUID VARCHAR,
+    Left_Delete BOOLEAN,
+    Left_Create BOOLEAN,
+    Right_TO_Name VARCHAR,
+    Right_TO_ID BIGINT,
+    Right_TO_UUID VARCHAR,
+    Right_Delete BOOLEAN,
+    Right_Create BOOLEAN,
+    Operator VARCHAR,
+    Left_Field_Name VARCHAR,
+    Left_Field_ID BIGINT,
+    Left_Field_UUID VARCHAR,
+    Left_Field_TO_Name VARCHAR,
+    Left_Field_TO_UUID VARCHAR,
+    Right_Field_Name VARCHAR,
+    Right_Field_ID BIGINT,
+    Right_Field_UUID VARCHAR,
+    Right_Field_TO_Name VARCHAR,
+    Right_Field_TO_UUID VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (Rel_ID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO RelationshipCatalog
+SELECT
+    id AS Rel_ID,
+    LeftTable.TableOccurrenceReference.name AS Left_TO_Name,
+    LeftTable.TableOccurrenceReference.id AS Left_TO_ID,
+    LeftTable.TableOccurrenceReference.UUID AS Left_TO_UUID,
+    LeftTable.cascadeDelete AS Left_Delete,
+    LeftTable.cascadeCreate AS Left_Create,
+    RightTable.TableOccurrenceReference.name AS Right_TO_Name,
+    RightTable.TableOccurrenceReference.id AS Right_TO_ID,
+    RightTable.TableOccurrenceReference.UUID AS Right_TO_UUID,
+    RightTable.cascadeDelete AS Right_Delete,
+    RightTable.cascadeCreate AS Right_Create,
+    p.type AS Operator,
+    p.LeftField.FieldReference.name AS Left_Field_Name,
+    p.LeftField.FieldReference.id AS Left_Field_ID,
+    p.LeftField.FieldReference.UUID AS Left_Field_UUID,
+    p.LeftField.FieldReference.TableOccurrenceReference.name AS Left_Field_TO_Name,
+    p.LeftField.FieldReference.TableOccurrenceReference.UUID AS Left_Field_TO_UUID,
+    p.RightField.FieldReference.name AS Right_Field_Name,
+    p.RightField.FieldReference.id AS Right_Field_ID,
+    p.RightField.FieldReference.UUID AS Right_Field_UUID,
+    p.RightField.FieldReference.TableOccurrenceReference.name AS Right_Field_TO_Name,
+    p.RightField.FieldReference.TableOccurrenceReference.UUID AS Right_Field_TO_UUID,
+    fn.File_Name as File_Name
+FROM read_xml(
+    getvariable('fm_xml'),
+    root_element='RelationshipCatalog',
+    record_element='Relationship',
+    max_depth=10,
+    maximum_file_size=getvariable('max_filesize'),
+    columns={
+        'id': 'BIGINT',
+        'LeftTable': 'STRUCT(
+            cascadeCreate BOOLEAN,
+            cascadeDelete BOOLEAN,
+            "TableOccurrenceReference" STRUCT(id BIGINT, name VARCHAR, UUID VARCHAR)
+        )',
+        'RightTable': 'STRUCT(
+            cascadeCreate BOOLEAN,
+            cascadeDelete BOOLEAN,
+            "TableOccurrenceReference" STRUCT(id BIGINT, name VARCHAR, UUID VARCHAR)
+        )',
+        'JoinPredicateList': 'STRUCT(
+            "JoinPredicate" STRUCT(
+                type VARCHAR,
+                "LeftField" STRUCT(
+                    FieldReference STRUCT(
+                        id BIGINT, name VARCHAR, UUID VARCHAR,
+                        "TableOccurrenceReference" STRUCT(id BIGINT, name VARCHAR, UUID VARCHAR)
+                    )
+                ),
+                "RightField" STRUCT(
+                    FieldReference STRUCT(
+                        id BIGINT, name VARCHAR, UUID VARCHAR,
+                        "TableOccurrenceReference" STRUCT(id BIGINT, name VARCHAR, UUID VARCHAR)
+                    )
+                )
+            )[]
+        )'
+    }
+)
+CROSS JOIN UNNEST(JoinPredicateList.JoinPredicate) AS t(p)
+CROSS JOIN filename_normalized fn
+WHERE p.LeftField.FieldReference.UUID IS NOT NULL
+  AND p.RightField.FieldReference.UUID IS NOT NULL
+ON CONFLICT (Rel_ID, File_Name) DO UPDATE SET
+    Left_TO_Name = EXCLUDED.Left_TO_Name,
+    Left_TO_ID = EXCLUDED.Left_TO_ID,
+    Left_TO_UUID = EXCLUDED.Left_TO_UUID,
+    Left_Delete = EXCLUDED.Left_Delete,
+    Left_Create = EXCLUDED.Left_Create,
+    Right_TO_Name = EXCLUDED.Right_TO_Name,
+    Right_TO_ID = EXCLUDED.Right_TO_ID,
+    Right_TO_UUID = EXCLUDED.Right_TO_UUID,
+    Right_Delete = EXCLUDED.Right_Delete,
+    Right_Create = EXCLUDED.Right_Create,
+    Operator = EXCLUDED.Operator,
+    Left_Field_Name = EXCLUDED.Left_Field_Name,
+    Left_Field_ID = EXCLUDED.Left_Field_ID,
+    Left_Field_TO_Name = EXCLUDED.Left_Field_TO_Name,
+    Left_Field_TO_UUID = EXCLUDED.Left_Field_TO_UUID,
+    Right_Field_Name = EXCLUDED.Right_Field_Name,
+    Right_Field_ID = EXCLUDED.Right_Field_ID,
+    Right_Field_TO_Name = EXCLUDED.Right_Field_TO_Name,
+    Right_Field_TO_UUID = EXCLUDED.Right_Field_TO_UUID;
+
+
+-- FieldsForTables
+CREATE TABLE IF NOT EXISTS FieldsForTables (
+    Table_ID BIGINT,
+    Table_Name VARCHAR,
+    Table_UUID VARCHAR,
+    Field_ID BIGINT,
+    Field_Name VARCHAR,
+    Field_Type VARCHAR,
+    Data_Type VARCHAR,
+    Field_Comment VARCHAR,
+    Field_UUID VARCHAR,
+    Is_Global BOOLEAN,
+    Max_Repetitions INTEGER,
+    DDR_Hash VARCHAR,  -- DDR-Hash für Calculated Fields (ab FM21+)
+    Calculation_Text VARCHAR,  -- Klartext-Formel aus <Text> CDATA (vollständiger als ChunkList)
+    -- AutoEnter-Basisattribute (alle Typen)
+    AutoEnter_Type VARCHAR,              -- 'Looked_up', 'SerialNumber', 'Calculated', 'ConstantData', etc.
+    AutoEnter_ProhibitMod BOOLEAN,       -- Benutzer darf überschreiben?
+    -- Lookup-Details (nur für AutoEnter_Type = 'Looked_up')
+    Lookup_Field_Name VARCHAR,           -- Name des Quellfeldes
+    Lookup_Field_UUID VARCHAR,           -- UUID des Quellfeldes
+    Lookup_TO_Name VARCHAR,              -- Name der Beziehungs-TO
+    Lookup_TO_UUID VARCHAR,              -- UUID der Beziehungs-TO
+    Lookup_DontCopyIfEmpty BOOLEAN,      -- Leerwerte nicht übernehmen?
+    Lookup_NoMatchOption VARCHAR,        -- 'DoNotCopy' oder 'ConstantData'
+    -- AutoEnter Calculated-Details (nur für AutoEnter_Type = 'Calculated')
+    AE_Calc_Text VARCHAR,               -- Klartext-Formel (komplementär zu Calculation_Text)
+    AE_Calc_Hash VARCHAR,               -- DDR-Hash (komplementär zu DDR_Hash)
+    AE_Calc_OverwriteExisting BOOLEAN,  -- Vorhandene Werte überschreiben?
+    AE_Calc_AlwaysEvaluate BOOLEAN,     -- Bei jeder Änderung neu berechnen?
+    -- ConstantData (nur für AutoEnter_Type = 'ConstantData')
+    AE_ConstantData VARCHAR,            -- Fester Standardwert
+    File_Name VARCHAR,
+    PRIMARY KEY (Field_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO FieldsForTables
+SELECT
+    BaseTableReference.id AS Table_ID,
+    BaseTableReference.name AS Table_Name,
+    BaseTableReference.UUID AS Table_UUID,
+    f.id AS Field_ID,
+    f.name AS Field_Name,
+    f.fieldtype AS Field_Type,
+    f.datatype AS Data_Type,
+    f.comment AS Field_Comment,
+    f.UUID."#text" AS Field_UUID,
+    f.Storage.global AS Is_Global,
+    f.Storage.maxRepetitions AS Max_Repetitions,
+    f.Calculation.DDRREF.hash AS DDR_Hash,  -- DDR-Hash für Calculated Fields (ab FM21+)
+    f.Calculation.Text AS Calculation_Text,  -- Klartext-Formel aus <Text> CDATA
+    -- AutoEnter-Basisattribute
+    CASE WHEN f.AutoEnter.type = '' THEN NULL ELSE f.AutoEnter.type END AS AutoEnter_Type,
+    f.AutoEnter.prohibitModification AS AutoEnter_ProhibitMod,
+    -- Lookup-Details
+    f.AutoEnter.Looked_up.FieldReference.name AS Lookup_Field_Name,
+    f.AutoEnter.Looked_up.FieldReference.UUID AS Lookup_Field_UUID,
+    f.AutoEnter.Looked_up.FieldReference.TableOccurrenceReference.name AS Lookup_TO_Name,
+    f.AutoEnter.Looked_up.FieldReference.TableOccurrenceReference.UUID AS Lookup_TO_UUID,
+    f.AutoEnter.Looked_up.dontCopyIfEmpty AS Lookup_DontCopyIfEmpty,
+    f.AutoEnter.Looked_up.noMatchCopyOption AS Lookup_NoMatchOption,
+    -- AutoEnter Calculated-Details
+    f.AutoEnter.Calculated.Calculation.Text AS AE_Calc_Text,
+    f.AutoEnter.Calculated.Calculation.DDRREF.hash AS AE_Calc_Hash,
+    f.AutoEnter.overwriteExisting AS AE_Calc_OverwriteExisting,
+    f.AutoEnter.alwaysEvaluate AS AE_Calc_AlwaysEvaluate,
+    -- ConstantData
+    f.AutoEnter.ConstantData AS AE_ConstantData,
+    fn.File_Name as File_Name
+FROM read_xml(
+    getvariable('fm_xml'),
+    root_element='FieldsForTables',
+    record_element='FieldCatalog',
+    max_depth=10,
+    maximum_file_size=getvariable('max_filesize'),
+    columns={
+        'BaseTableReference': 'STRUCT(id BIGINT, name VARCHAR, UUID VARCHAR)',
+        'ObjectList': 'STRUCT(
+            "Field" STRUCT(
+                "id" BIGINT,
+                "name" VARCHAR,
+                "fieldtype" VARCHAR,
+                "datatype" VARCHAR,
+                "comment" VARCHAR,
+                "UUID" STRUCT("#text" VARCHAR),
+                "Storage" STRUCT("global" BOOLEAN, "maxRepetitions" INTEGER),
+                "Calculation" STRUCT("DDRREF" STRUCT("hash" VARCHAR), "Text" VARCHAR),
+                "AutoEnter" STRUCT(
+                    "type" VARCHAR,
+                    "prohibitModification" BOOLEAN,
+                    "overwriteExisting" BOOLEAN,
+                    "alwaysEvaluate" BOOLEAN,
+                    "ConstantData" VARCHAR,
+                    "Looked_up" STRUCT(
+                        "dontCopyIfEmpty" BOOLEAN,
+                        "noMatchCopyOption" VARCHAR,
+                        "FieldReference" STRUCT(
+                            "id" BIGINT,
+                            "name" VARCHAR,
+                            "UUID" VARCHAR,
+                            "TableOccurrenceReference" STRUCT(
+                                "id" BIGINT,
+                                "name" VARCHAR,
+                                "UUID" VARCHAR
+                            )
+                        )
+                    ),
+                    "Calculated" STRUCT(
+                        "Calculation" STRUCT(
+                            "DDRREF" STRUCT("hash" VARCHAR),
+                            "Text" VARCHAR
+                        )
+                    )
+                )
+            )[]
+        )'
+    }
+)
+CROSS JOIN UNNEST(ObjectList.Field) AS t(f)
+CROSS JOIN filename_normalized fn
+WHERE f.id IS NOT NULL
+  AND f.UUID."#text" IS NOT NULL
+ON CONFLICT (Field_UUID, File_Name) DO UPDATE SET
+    Table_ID = EXCLUDED.Table_ID,
+    Table_Name = EXCLUDED.Table_Name,
+    Table_UUID = EXCLUDED.Table_UUID,
+    Field_ID = EXCLUDED.Field_ID,
+    Field_Name = EXCLUDED.Field_Name,
+    Field_Type = EXCLUDED.Field_Type,
+    Data_Type = EXCLUDED.Data_Type,
+    Field_Comment = EXCLUDED.Field_Comment,
+    Is_Global = EXCLUDED.Is_Global,
+    Max_Repetitions = EXCLUDED.Max_Repetitions,
+    DDR_Hash = EXCLUDED.DDR_Hash,
+    Calculation_Text = EXCLUDED.Calculation_Text,
+    AutoEnter_Type = EXCLUDED.AutoEnter_Type,
+    AutoEnter_ProhibitMod = EXCLUDED.AutoEnter_ProhibitMod,
+    Lookup_Field_Name = EXCLUDED.Lookup_Field_Name,
+    Lookup_Field_UUID = EXCLUDED.Lookup_Field_UUID,
+    Lookup_TO_Name = EXCLUDED.Lookup_TO_Name,
+    Lookup_TO_UUID = EXCLUDED.Lookup_TO_UUID,
+    Lookup_DontCopyIfEmpty = EXCLUDED.Lookup_DontCopyIfEmpty,
+    Lookup_NoMatchOption = EXCLUDED.Lookup_NoMatchOption,
+    AE_Calc_Text = EXCLUDED.AE_Calc_Text,
+    AE_Calc_Hash = EXCLUDED.AE_Calc_Hash,
+    AE_Calc_OverwriteExisting = EXCLUDED.AE_Calc_OverwriteExisting,
+    AE_Calc_AlwaysEvaluate = EXCLUDED.AE_Calc_AlwaysEvaluate,
+    AE_ConstantData = EXCLUDED.AE_ConstantData;
+
+
+-- ValueListCatalog
+CREATE TABLE IF NOT EXISTS ValueListCatalog (
+    VL_ID BIGINT,
+    VL_Name VARCHAR,
+    Source_Type VARCHAR,
+    VL_UUID VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (VL_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO ValueListCatalog
+SELECT
+    id AS VL_ID,
+    name AS VL_Name,
+    Source.value AS Source_Type,
+    UUID."#text" AS VL_UUID,
+    fn.File_Name as File_Name
+FROM read_xml(
+    getvariable('fm_xml'),
+    root_element='ValueListCatalog',
+    record_element='ValueList',
+    max_depth=10,
+    maximum_file_size=getvariable('max_filesize'),
+    columns={
+        'id': 'BIGINT',
+        'name': 'VARCHAR',
+        'UUID': 'STRUCT("#text" VARCHAR, "modifications" BIGINT, "userName" VARCHAR, "accountName" VARCHAR, "timestamp" VARCHAR)',
+        'Source': 'STRUCT(value VARCHAR)'
+    }
+)
+CROSS JOIN filename_normalized fn
+WHERE id IS NOT NULL
+ON CONFLICT (VL_UUID, File_Name) DO UPDATE SET
+    VL_ID = EXCLUDED.VL_ID,
+    VL_Name = EXCLUDED.VL_Name,
+    Source_Type = EXCLUDED.Source_Type;
+
+
+-- OptionsForValueLists (Details und Werte)
+CREATE TABLE IF NOT EXISTS OptionsForValueLists (
+    VL_ID BIGINT,
+    VL_Name VARCHAR,
+    VL_UUID VARCHAR,
+    Source_Type VARCHAR,
+    Custom_Values VARCHAR[],
+    Field_ID BIGINT,
+    Field_Name VARCHAR,
+    Field_UUID VARCHAR,
+    TO_ID BIGINT,
+    TO_Name VARCHAR,
+    TO_UUID VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (VL_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO OptionsForValueLists
+SELECT
+    ValueListReference.id AS VL_ID,
+    ValueListReference.name AS VL_Name,
+    ValueListReference.UUID AS VL_UUID,
+    Source.value AS Source_Type,
+    [v."#text" for v in CustomValues.Text] AS Custom_Values,
+    Source.FieldReference.id AS Field_ID,
+    Source.FieldReference.name AS Field_Name,
+    Source.FieldReference.UUID AS Field_UUID,
+    Source.FieldReference.TableOccurrenceReference.id AS TO_ID,
+    Source.FieldReference.TableOccurrenceReference.name AS TO_Name,
+    Source.FieldReference.TableOccurrenceReference.UUID AS TO_UUID,
+    fn.File_Name as File_Name
+FROM read_xml(
+    getvariable('fm_xml'),
+    root_element='OptionsForValueLists',
+    record_element='ValueList',
+    max_depth=10,
+    maximum_file_size=getvariable('max_filesize'),
+    columns={
+        'ValueListReference': 'STRUCT(id BIGINT, name VARCHAR, UUID VARCHAR)',
+        'Source': 'STRUCT(
+            value VARCHAR,
+            "FieldReference" STRUCT(
+                id BIGINT,
+                name VARCHAR,
+                UUID VARCHAR,
+                "TableOccurrenceReference" STRUCT(id BIGINT, name VARCHAR, UUID VARCHAR)
+            )
+        )',
+        'CustomValues': 'STRUCT("Text" STRUCT("#text" VARCHAR)[])'
+    }
+)
+CROSS JOIN filename_normalized fn
+WHERE ValueListReference.id IS NOT NULL
+ON CONFLICT (VL_UUID, File_Name) DO UPDATE SET
+    VL_ID = EXCLUDED.VL_ID,
+    VL_Name = EXCLUDED.VL_Name,
+    Source_Type = EXCLUDED.Source_Type,
+    Custom_Values = EXCLUDED.Custom_Values,
+    Field_ID = EXCLUDED.Field_ID,
+    Field_Name = EXCLUDED.Field_Name,
+    Field_UUID = EXCLUDED.Field_UUID,
+    TO_ID = EXCLUDED.TO_ID,
+    TO_Name = EXCLUDED.TO_Name,
+    TO_UUID = EXCLUDED.TO_UUID;
+
+
+-- CustomFunctionsCatalog
+CREATE TABLE IF NOT EXISTS CustomFunctionsCatalog (
+    CF_ID BIGINT,
+    CF_Name VARCHAR,
+    CF_Display VARCHAR,
+    CF_UUID VARCHAR,
+    Parameters VARCHAR[],
+    DDR_Hash VARCHAR,  -- DDR-Hash für Custom Functions (ab FM21+)
+    File_Name VARCHAR,
+    PRIMARY KEY (CF_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO CustomFunctionsCatalog
+SELECT
+    id AS CF_ID,
+    name AS CF_Name,
+    Display AS CF_Display,
+    UUID->>'#text' AS CF_UUID,
+    [p.name for p in ObjectList.Parameter] AS Parameters,
+    NULL AS DDR_Hash,  -- Wird später von CalcsForCustomFunctions aktualisiert
+    fn.File_Name as File_Name
+FROM read_xml(
+    getvariable('fm_xml'),
+    root_element='CustomFunctionsCatalog',
+    record_element='CustomFunction',
+    max_depth=10,
+    maximum_file_size=getvariable('max_filesize'),
+    columns={
+        'id': 'BIGINT',
+        'name': 'VARCHAR',
+        'Display': 'VARCHAR',
+        'UUID': 'STRUCT("#text" VARCHAR, "modifications" BIGINT, "userName" VARCHAR, "timestamp" VARCHAR)',
+        'ObjectList': 'STRUCT(Parameter STRUCT(name VARCHAR)[])'
+    }
+)
+CROSS JOIN filename_normalized fn
+ON CONFLICT (CF_UUID, File_Name) DO UPDATE SET
+    CF_ID = EXCLUDED.CF_ID,
+    CF_Name = EXCLUDED.CF_Name,
+    CF_Display = EXCLUDED.CF_Display,
+    Parameters = EXCLUDED.Parameters,
+    DDR_Hash = EXCLUDED.DDR_Hash;
+
+
+-- CalcsForCustomFunctions
+CREATE TABLE IF NOT EXISTS CalcsForCustomFunctions (
+    CF_ID BIGINT,
+    CF_Name VARCHAR,
+    CF_UUID VARCHAR,
+    Calculation_Code VARCHAR,
+    Code_Chunks STRUCT(type VARCHAR, content VARCHAR)[],
+    DDR_Hash VARCHAR,
+    DDR_UUID VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (CF_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO CalcsForCustomFunctions
+SELECT
+    CustomFunctionReference.id AS CF_ID,
+    CustomFunctionReference.name AS CF_Name,
+    CustomFunctionReference.UUID AS CF_UUID,
+    Calculation.Text AS Calculation_Code,
+    [ {'type': c.type, 'content': c."#text"} for c in Calculation.ChunkList.Chunk ] AS Code_Chunks,
+    Calculation.DDRREF.hash AS DDR_Hash,
+    regexp_replace(
+        Calculation.DDRREF."#text",
+        '^_',
+        ''
+    ) AS DDR_UUID,
+    fn.File_Name as File_Name
+FROM read_xml(
+    getvariable('fm_xml'),
+    root_element='CalcsForCustomFunctions',
+    record_element='CustomFunctionCalc',
+    max_depth=10,
+    maximum_file_size=getvariable('max_filesize'),
+    columns={
+        'CustomFunctionReference': 'STRUCT(id BIGINT, name VARCHAR, UUID VARCHAR)',
+        'Calculation': 'STRUCT(
+            "Text" VARCHAR,
+            "ChunkList" STRUCT(
+                "Chunk" STRUCT(type VARCHAR, "#text" VARCHAR)[]
+            ),
+            "DDRREF" STRUCT(
+                "kind" VARCHAR,
+                "hash" VARCHAR,
+                "#text" VARCHAR
+            )
+        )'
+    }
+)
+CROSS JOIN filename_normalized fn
+ON CONFLICT (CF_UUID, File_Name) DO UPDATE SET
+    CF_ID = EXCLUDED.CF_ID,
+    CF_Name = EXCLUDED.CF_Name,
+    Calculation_Code = EXCLUDED.Calculation_Code,
+    Code_Chunks = EXCLUDED.Code_Chunks,
+    DDR_Hash = EXCLUDED.DDR_Hash,
+    DDR_UUID = EXCLUDED.DDR_UUID;
+
+
+-- Update CustomFunctionsCatalog with DDR_Hash from CalcsForCustomFunctions
+UPDATE CustomFunctionsCatalog cf
+SET DDR_Hash = calc.DDR_Hash
+FROM CalcsForCustomFunctions calc
+WHERE cf.CF_UUID = calc.CF_UUID
+  AND cf.File_Name = calc.File_Name
+  AND calc.DDR_Hash IS NOT NULL;
+
+
+-- ScriptCatalog
+CREATE TABLE IF NOT EXISTS ScriptCatalog (
+    Script_ID BIGINT,
+    Script_Name VARCHAR,
+    Folder_Type VARCHAR,
+    Is_Separator BOOLEAN,
+    Script_UUID VARCHAR,
+    Modifications BIGINT,
+    Last_Modified_By VARCHAR,
+    Last_Modified_At VARCHAR,
+    Option_Bitmask INTEGER,
+    Is_Hidden BOOLEAN,
+    Full_Access BOOLEAN,
+    File_Name VARCHAR,
+    PRIMARY KEY (Script_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO ScriptCatalog
+SELECT
+    id AS Script_ID,
+    name AS Script_Name,
+    isFolder AS Folder_Type,
+    COALESCE(isSeparatorItem, False) AS Is_Separator,
+    UUID."#text" AS Script_UUID,
+    UUID.modifications AS Modifications,
+    UUID.userName AS Last_Modified_By,
+    UUID.timestamp AS Last_Modified_At,
+    Options."#text" AS Option_Bitmask,
+    Options.hidden AS Is_Hidden,
+    Options.runwithfullaccess AS Full_Access,
+    fn.File_Name as File_Name
+FROM read_xml(
+    getvariable('fm_xml'),
+    root_element='ScriptCatalog',
+    record_element='Script',
+    max_depth=10,
+    maximum_file_size=getvariable('max_filesize'),
+    columns={
+        'id': 'BIGINT',
+        'name': 'VARCHAR',
+        'isFolder': 'VARCHAR',
+        'isSeparatorItem': 'BOOLEAN',
+        'UUID': 'STRUCT("#text" VARCHAR, modifications BIGINT, userName VARCHAR, accountName VARCHAR, timestamp VARCHAR)',
+        'Options': 'STRUCT("#text" INTEGER, hidden BOOLEAN, access VARCHAR, SiriShortcutVisible BOOLEAN, runwithfullaccess BOOLEAN, compatibility INTEGER)'
+    }
+)
+CROSS JOIN filename_normalized fn
+WHERE id IS NOT NULL
+ON CONFLICT (Script_UUID, File_Name) DO UPDATE SET
+    Script_ID = EXCLUDED.Script_ID,
+    Script_Name = EXCLUDED.Script_Name,
+    Folder_Type = EXCLUDED.Folder_Type,
+    Is_Separator = EXCLUDED.Is_Separator,
+    Modifications = EXCLUDED.Modifications,
+    Last_Modified_By = EXCLUDED.Last_Modified_By,
+    Last_Modified_At = EXCLUDED.Last_Modified_At,
+    Option_Bitmask = EXCLUDED.Option_Bitmask,
+    Is_Hidden = EXCLUDED.Is_Hidden,
+    Full_Access = EXCLUDED.Full_Access;
+
+
+-- StepsForScripts
+CREATE TABLE IF NOT EXISTS StepsForScripts (
+    Script_ID BIGINT,
+    Script_Name VARCHAR,
+    Script_UUID VARCHAR,
+    Step_Index INTEGER,
+    Step_ID INTEGER,
+    Step_Name VARCHAR,
+    Is_Enabled BOOLEAN,
+    Step_UUID VARCHAR,
+    DDR_Hash VARCHAR,
+    DDR_UUID VARCHAR,
+    Parameters_XML VARCHAR,
+    Parameter_Type VARCHAR,
+    Variable_Name VARCHAR,
+    Calculation_Text VARCHAR,
+    Boolean_Type VARCHAR,
+    Boolean_Value VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (Step_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_scripts AS (
+    SELECT
+        unnest(xml_extract_elements(xml, '//StepsForScripts/Script')) as script_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+script_steps AS (
+    SELECT
+        xml_extract_text(script_xml, '/Script/ScriptReference/@id')[1]::BIGINT as Script_ID,
+        xml_extract_text(script_xml, '/Script/ScriptReference/@name')[1] as Script_Name,
+        xml_extract_text(script_xml, '/Script/ScriptReference/@UUID')[1] as Script_UUID,
+        unnest(xml_extract_elements(script_xml, '/Script/ObjectList/Step')) as step_xml
+    FROM raw_scripts
+)
+INSERT INTO StepsForScripts
+SELECT
+    Script_ID,
+    Script_Name,
+    Script_UUID,
+    xml_extract_text(step_xml, '/Step/@index')[1]::INTEGER as Step_Index,
+    xml_extract_text(step_xml, '/Step/@id')[1]::INTEGER as Step_ID,
+    xml_extract_text(step_xml, '/Step/@name')[1] as Step_Name,
+    xml_extract_text(step_xml, '/Step/@enable')[1] = 'True' as Is_Enabled,
+    xml_extract_text(step_xml, '/Step/UUID')[1] as Step_UUID,
+    xml_extract_text(step_xml, '/Step/DDRREF[@kind="StepText"]/@hash')[1] as DDR_Hash,
+    regexp_replace(
+        xml_extract_text(step_xml, '/Step/DDRREF[@kind="StepText"]')[1],
+        '^_',
+        ''
+    ) as DDR_UUID,
+    xml_extract_elements(step_xml, '/Step/ParameterValues')[1]::VARCHAR as Parameters_XML,
+    xml_extract_text(step_xml, '//Parameter/@type')[1] as Parameter_Type,
+    xml_extract_text(step_xml, '//Parameter[@type="Variable"]/Name/@value')[1] as Variable_Name,
+    xml_extract_text(step_xml, '//Calculation/Text')[1] as Calculation_Text,
+    xml_extract_text(step_xml, '//Boolean/@type')[1] as Boolean_Type,
+    xml_extract_text(step_xml, '//Boolean/@value')[1] as Boolean_Value,
+    fn.File_Name as File_Name
+FROM script_steps
+CROSS JOIN filename_normalized fn
+ON CONFLICT (Step_UUID, File_Name) DO UPDATE SET
+    Script_ID = EXCLUDED.Script_ID,
+    Script_Name = EXCLUDED.Script_Name,
+    Script_UUID = EXCLUDED.Script_UUID,
+    Step_Index = EXCLUDED.Step_Index,
+    Step_ID = EXCLUDED.Step_ID,
+    Step_Name = EXCLUDED.Step_Name,
+    Is_Enabled = EXCLUDED.Is_Enabled,
+    DDR_Hash = EXCLUDED.DDR_Hash,
+    DDR_UUID = EXCLUDED.DDR_UUID,
+    Parameters_XML = EXCLUDED.Parameters_XML,
+    Parameter_Type = EXCLUDED.Parameter_Type,
+    Variable_Name = EXCLUDED.Variable_Name,
+    Calculation_Text = EXCLUDED.Calculation_Text,
+    Boolean_Type = EXCLUDED.Boolean_Type,
+    Boolean_Value = EXCLUDED.Boolean_Value;
+
+
+-- ============================================
+-- XMLStepReferences (ersetzt Python extract_xml_references.py)
+-- ============================================
+-- Extrahiert UUID-Referenzen direkt aus dem XML per xml_extract_text().
+-- Kein JSON-Umweg, kein Escaping-Problem.
+CREATE TABLE IF NOT EXISTS XMLStepReferences (
+    Script_UUID VARCHAR,
+    Step_UUID VARCHAR,
+    Step_Name VARCHAR,
+    Step_Index VARCHAR,
+    Ref_Type VARCHAR,
+    Ref_UUID VARCHAR,
+    Ref_Name VARCHAR,
+    File_Name VARCHAR
+);
+
+-- Bestehende Einträge für diese Datei entfernen (Idempotenz)
+DELETE FROM XMLStepReferences WHERE File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+);
+
+-- Perform Script → ScriptReference
+WITH filename_normalized AS (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_scripts AS (
+    SELECT unnest(xml_extract_elements(xml, '//StepsForScripts/Script')) as script_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+script_steps AS (
+    SELECT
+        xml_extract_text(script_xml, '/Script/ScriptReference/@UUID')[1] as Script_UUID,
+        unnest(xml_extract_elements(script_xml, '/Script/ObjectList/Step')) as step_xml
+    FROM raw_scripts
+)
+INSERT INTO XMLStepReferences
+SELECT Script_UUID,
+    xml_extract_text(step_xml, '/Step/UUID')[1] as Step_UUID,
+    xml_extract_text(step_xml, '/Step/@name')[1] as Step_Name,
+    xml_extract_text(step_xml, '/Step/@index')[1] as Step_Index,
+    'script' as Ref_Type,
+    xml_extract_text(step_xml, '//ScriptReference/@UUID')[1] as Ref_UUID,
+    xml_extract_text(step_xml, '//ScriptReference/@name')[1] as Ref_Name,
+    fn.File_Name
+FROM script_steps CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(step_xml, '/Step/@name')[1] LIKE '%Perform Script%'
+  AND xml_extract_text(step_xml, '//ScriptReference/@UUID')[1] IS NOT NULL;
+
+-- Set Field / Go to Field / Go to Related Record → FieldReference
+WITH filename_normalized AS (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_scripts AS (
+    SELECT unnest(xml_extract_elements(xml, '//StepsForScripts/Script')) as script_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+script_steps AS (
+    SELECT
+        xml_extract_text(script_xml, '/Script/ScriptReference/@UUID')[1] as Script_UUID,
+        unnest(xml_extract_elements(script_xml, '/Script/ObjectList/Step')) as step_xml
+    FROM raw_scripts
+)
+INSERT INTO XMLStepReferences
+SELECT Script_UUID,
+    xml_extract_text(step_xml, '/Step/UUID')[1] as Step_UUID,
+    xml_extract_text(step_xml, '/Step/@name')[1] as Step_Name,
+    xml_extract_text(step_xml, '/Step/@index')[1] as Step_Index,
+    'field' as Ref_Type,
+    xml_extract_text(step_xml, '//FieldReference/@UUID')[1] as Ref_UUID,
+    xml_extract_text(step_xml, '//FieldReference/@name')[1] as Ref_Name,
+    fn.File_Name
+FROM script_steps CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(step_xml, '/Step/@name')[1] IN ('Set Field', 'Go to Field', 'Go to Related Record')
+  AND xml_extract_text(step_xml, '//FieldReference/@UUID')[1] IS NOT NULL;
+
+-- Go to Layout → LayoutReference
+WITH filename_normalized AS (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_scripts AS (
+    SELECT unnest(xml_extract_elements(xml, '//StepsForScripts/Script')) as script_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+script_steps AS (
+    SELECT
+        xml_extract_text(script_xml, '/Script/ScriptReference/@UUID')[1] as Script_UUID,
+        unnest(xml_extract_elements(script_xml, '/Script/ObjectList/Step')) as step_xml
+    FROM raw_scripts
+)
+INSERT INTO XMLStepReferences
+SELECT Script_UUID,
+    xml_extract_text(step_xml, '/Step/UUID')[1] as Step_UUID,
+    xml_extract_text(step_xml, '/Step/@name')[1] as Step_Name,
+    xml_extract_text(step_xml, '/Step/@index')[1] as Step_Index,
+    'layout' as Ref_Type,
+    xml_extract_text(step_xml, '//LayoutReference/@UUID')[1] as Ref_UUID,
+    xml_extract_text(step_xml, '//LayoutReference/@name')[1] as Ref_Name,
+    fn.File_Name
+FROM script_steps CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(step_xml, '/Step/@name')[1] = 'Go to Layout'
+  AND xml_extract_text(step_xml, '//LayoutReference/@UUID')[1] IS NOT NULL;
+
+
+-- Layouts
+CREATE TABLE IF NOT EXISTS Layouts (
+    L_ID BIGINT,
+    L_Name VARCHAR,
+    L_UUID VARCHAR,
+    L_TO_Name VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (L_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO Layouts
+SELECT
+    id AS L_ID,
+    name AS L_Name,
+    UUID."#text" AS L_UUID,
+    TableOccurrenceReference.name AS L_TO_Name,
+    fn.File_Name as File_Name
+FROM read_xml(
+    getvariable('fm_xml'),
+    root_element='LayoutCatalog',
+    record_element='Layout',
+    maximum_file_size=getvariable('max_filesize'),
+    columns={
+        'id': 'BIGINT',
+        'name': 'VARCHAR',
+        'UUID': 'STRUCT("#text" VARCHAR)',
+        'TableOccurrenceReference': 'STRUCT(name VARCHAR)'
+    }
+)
+CROSS JOIN filename_normalized fn
+WHERE L_ID IS NOT NULL AND TableOccurrenceReference.name IS NOT NULL
+ON CONFLICT (L_UUID, File_Name) DO UPDATE SET
+    L_ID = EXCLUDED.L_ID,
+    L_Name = EXCLUDED.L_Name,
+    L_TO_Name = EXCLUDED.L_TO_Name;
+
+
+-- LayoutParts
+CREATE TABLE IF NOT EXISTS LayoutParts (
+    Layout_ID BIGINT,
+    Layout_Name VARCHAR,
+    Part_Type VARCHAR,
+    Part_Kind INTEGER,
+    Definition_Type VARCHAR,
+    Definition_Kind INTEGER,
+    Part_Size INTEGER,
+    Part_Absolute INTEGER,
+    Part_Options INTEGER,
+    Object_Count BIGINT,
+    File_Name VARCHAR,
+    PRIMARY KEY (Layout_ID, Part_Kind, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_layouts AS (
+    SELECT
+        unnest(xml_extract_elements(xml, '//LayoutCatalog/Layout')) as layout_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+layout_parts AS (
+    SELECT
+        xml_extract_text(layout_xml, '/Layout/@id')[1]::BIGINT as Layout_ID,
+        xml_extract_text(layout_xml, '/Layout/@name')[1] as Layout_Name,
+        unnest(xml_extract_elements(layout_xml, '/Layout/PartsList/Part')) as part_xml
+    FROM raw_layouts
+    WHERE xml_extract_text(layout_xml, '/Layout/@id')[1] IS NOT NULL
+)
+INSERT INTO LayoutParts
+SELECT
+    Layout_ID,
+    Layout_Name,
+    xml_extract_text(part_xml, '/Part/@type')[1] as Part_Type,
+    xml_extract_text(part_xml, '/Part/@kind')[1]::INTEGER as Part_Kind,
+    xml_extract_text(part_xml, '/Part/Definition/@type')[1] as Definition_Type,
+    xml_extract_text(part_xml, '/Part/Definition/@kind')[1]::INTEGER as Definition_Kind,
+    xml_extract_text(part_xml, '/Part/Definition/@size')[1]::INTEGER as Part_Size,
+    xml_extract_text(part_xml, '/Part/Definition/@absolute')[1]::INTEGER as Part_Absolute,
+    xml_extract_text(part_xml, '/Part/Definition/@Options')[1]::INTEGER as Part_Options,
+    list_count(xml_extract_elements(part_xml, '/Part/ObjectList/LayoutObject')) as Object_Count,
+    fn.File_Name as File_Name
+FROM layout_parts
+CROSS JOIN filename_normalized fn
+ON CONFLICT (Layout_ID, Part_Kind, File_Name) DO UPDATE SET
+    Layout_Name = EXCLUDED.Layout_Name,
+    Part_Type = EXCLUDED.Part_Type,
+    Definition_Type = EXCLUDED.Definition_Type,
+    Definition_Kind = EXCLUDED.Definition_Kind,
+    Part_Size = EXCLUDED.Part_Size,
+    Part_Absolute = EXCLUDED.Part_Absolute,
+    Part_Options = EXCLUDED.Part_Options,
+    Object_Count = EXCLUDED.Object_Count;
+
+
+-- ========================================
+-- LayoutObjects
+-- ========================================
+-- Alle Layout-Objekte mit rekursiver Verschachtelung
+-- (Portal, Group, Tab Control, Panel, Container, etc.)
+--
+-- Verwendet WITH RECURSIVE für verschachtelte Objekte:
+-- - Level 0: Root-Objekte direkt in Parts
+-- - Level 1+: Verschachtelte Objekte in Portals, Groups, Tab Controls, etc.
+-- ========================================
+
+CREATE TABLE IF NOT EXISTS LayoutObjects (
+    Layout_ID BIGINT,
+    Part_Type VARCHAR,
+    Object_ID BIGINT,
+    Object_Type VARCHAR,
+    Object_Name VARCHAR,
+    Object_Kind INTEGER,
+    Object_Hash VARCHAR,
+    Object_UUID VARCHAR,
+    Bounds_Top INTEGER,
+    Bounds_Left INTEGER,
+    Bounds_Bottom INTEGER,
+    Bounds_Right INTEGER,
+    Parent_Object_ID BIGINT,
+    Nesting_Level INTEGER,
+    Hide_Calculation_Text VARCHAR,
+    Tooltip_Calculation_Text VARCHAR,
+    Label_Calculation_Text VARCHAR,
+    ScriptTrigger_Parameter_Text VARCHAR,
+    Text_Content VARCHAR,
+    Object_XML VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (Object_UUID, File_Name)
+);
+
+WITH RECURSIVE filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_layouts AS (
+    SELECT
+        unnest(xml_extract_elements(xml, '//LayoutCatalog/Layout')) as layout_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+layout_parts AS (
+    SELECT
+        xml_extract_text(layout_xml, '/Layout/@id')[1]::BIGINT as Layout_ID,
+        xml_extract_text(layout_xml, '/Layout/@name')[1] as Layout_Name,
+        xml_extract_text(layout_xml, '/Layout/UUID/@*')[1] as Layout_UUID,
+        unnest(xml_extract_elements(layout_xml, '/Layout/PartsList/Part')) as part_xml
+    FROM raw_layouts
+),
+root_objects AS (
+    SELECT
+        Layout_ID,
+        xml_extract_text(part_xml, '/Part/@type')[1] as Part_Type,
+        xml_extract_text(object_xml, '/LayoutObject/@id')[1]::BIGINT as Object_ID,
+        xml_extract_text(object_xml, '/LayoutObject/@type')[1] as Object_Type,
+        xml_extract_text(object_xml, '/LayoutObject/@name')[1] as Object_Name,
+        xml_extract_text(object_xml, '/LayoutObject/@kind')[1]::INTEGER as Object_Kind,
+        xml_extract_text(object_xml, '/LayoutObject/@hash')[1] as Object_Hash,
+        xml_extract_text(object_xml, '/LayoutObject/UUID')[1] as Object_UUID,
+        xml_extract_text(object_xml, '/LayoutObject/Bounds/@top')[1]::INTEGER as Bounds_Top,
+        xml_extract_text(object_xml, '/LayoutObject/Bounds/@left')[1]::INTEGER as Bounds_Left,
+        xml_extract_text(object_xml, '/LayoutObject/Bounds/@bottom')[1]::INTEGER as Bounds_Bottom,
+        xml_extract_text(object_xml, '/LayoutObject/Bounds/@right')[1]::INTEGER as Bounds_Right,
+        NULL::BIGINT as Parent_Object_ID,
+        0 as Nesting_Level,
+        -- Calculation Text Extraction (CDATA aus XML)
+        xml_extract_text(object_xml, '/LayoutObject/Conditions/Hide/Calculation/Text')[1] as Hide_Calculation_Text,
+        xml_extract_text(object_xml, '/LayoutObject/Tooltip/Calculation/Text')[1] as Tooltip_Calculation_Text,
+        COALESCE(
+            xml_extract_text(object_xml, '/LayoutObject/Button/Label/Calculation/Text')[1],
+            xml_extract_text(object_xml, '/LayoutObject/GroupedButton/Label/Calculation/Text')[1],
+            xml_extract_text(object_xml, '/LayoutObject/PopoverButton/Label/Calculation/Text')[1]
+        ) as Label_Calculation_Text,
+        array_to_string(
+            xml_extract_text(object_xml, '/LayoutObject/ScriptTriggers/ScriptTrigger/ScriptReference/Calculation/Text'),
+            E'\n'
+        ) as ScriptTrigger_Parameter_Text,
+        xml_extract_text(object_xml, '/LayoutObject/Text/StyledText/Data')[1] as Text_Content,
+        object_xml
+    FROM layout_parts
+    CROSS JOIN LATERAL unnest(
+        xml_extract_elements(part_xml, '/Part/ObjectList/LayoutObject')
+    ) as t(object_xml)
+),
+nested_objects AS (
+    SELECT
+        Layout_ID,
+        Part_Type,
+        Object_ID,
+        Object_Type,
+        Object_Name,
+        Object_Kind,
+        Object_Hash,
+        Object_UUID,
+        Bounds_Top,
+        Bounds_Left,
+        Bounds_Bottom,
+        Bounds_Right,
+        Parent_Object_ID,
+        Nesting_Level,
+        Hide_Calculation_Text,
+        Tooltip_Calculation_Text,
+        Label_Calculation_Text,
+        ScriptTrigger_Parameter_Text,
+        Text_Content,
+        object_xml
+    FROM root_objects
+
+    UNION ALL
+
+    SELECT
+        parent.Layout_ID,
+        parent.Part_Type,
+        xml_extract_text(child_xml, '/LayoutObject/@id')[1]::BIGINT as Object_ID,
+        xml_extract_text(child_xml, '/LayoutObject/@type')[1] as Object_Type,
+        xml_extract_text(child_xml, '/LayoutObject/@name')[1] as Object_Name,
+        xml_extract_text(child_xml, '/LayoutObject/@kind')[1]::INTEGER as Object_Kind,
+        xml_extract_text(child_xml, '/LayoutObject/@hash')[1] as Object_Hash,
+        xml_extract_text(child_xml, '/LayoutObject/UUID')[1] as Object_UUID,
+        xml_extract_text(child_xml, '/LayoutObject/Bounds/@top')[1]::INTEGER as Bounds_Top,
+        xml_extract_text(child_xml, '/LayoutObject/Bounds/@left')[1]::INTEGER as Bounds_Left,
+        xml_extract_text(child_xml, '/LayoutObject/Bounds/@bottom')[1]::INTEGER as Bounds_Bottom,
+        xml_extract_text(child_xml, '/LayoutObject/Bounds/@right')[1]::INTEGER as Bounds_Right,
+        parent.Object_ID as Parent_Object_ID,
+        parent.Nesting_Level + 1 as Nesting_Level,
+        -- Calculation Text Extraction (CDATA aus XML)
+        xml_extract_text(child_xml, '/LayoutObject/Conditions/Hide/Calculation/Text')[1] as Hide_Calculation_Text,
+        xml_extract_text(child_xml, '/LayoutObject/Tooltip/Calculation/Text')[1] as Tooltip_Calculation_Text,
+        COALESCE(
+            xml_extract_text(child_xml, '/LayoutObject/Button/Label/Calculation/Text')[1],
+            xml_extract_text(child_xml, '/LayoutObject/GroupedButton/Label/Calculation/Text')[1],
+            xml_extract_text(child_xml, '/LayoutObject/PopoverButton/Label/Calculation/Text')[1]
+        ) as Label_Calculation_Text,
+        array_to_string(
+            xml_extract_text(child_xml, '/LayoutObject/ScriptTriggers/ScriptTrigger/ScriptReference/Calculation/Text'),
+            E'\n'
+        ) as ScriptTrigger_Parameter_Text,
+        xml_extract_text(child_xml, '/LayoutObject/Text/StyledText/Data')[1] as Text_Content,
+        child_xml as object_xml
+    FROM nested_objects parent
+    CROSS JOIN LATERAL unnest(
+        xml_extract_elements(parent.object_xml, '//ObjectList/LayoutObject')
+    ) as t(child_xml)
+    WHERE parent.Object_Type IN (
+        'Portal',
+        'Group',
+        'Tab Control',
+        'Panel',
+        'Container',
+        'Button Bar',
+        'Slide Control',
+        'Grouped Button',
+        'PopoverPanel',
+        'Popover Button'
+    )
+)
+INSERT INTO LayoutObjects
+SELECT
+    Layout_ID,
+    Part_Type,
+    Object_ID,
+    Object_Type,
+    Object_Name,
+    Object_Kind,
+    Object_Hash,
+    Object_UUID,
+    Bounds_Top,
+    Bounds_Left,
+    Bounds_Bottom,
+    Bounds_Right,
+    Parent_Object_ID,
+    Nesting_Level,
+    Hide_Calculation_Text,
+    Tooltip_Calculation_Text,
+    Label_Calculation_Text,
+    ScriptTrigger_Parameter_Text,
+    Text_Content,
+    object_xml::VARCHAR as Object_XML,
+    fn.File_Name as File_Name
+FROM nested_objects
+CROSS JOIN filename_normalized fn
+ON CONFLICT (Object_UUID, File_Name) DO UPDATE SET
+    Layout_ID = EXCLUDED.Layout_ID,
+    Part_Type = EXCLUDED.Part_Type,
+    Object_ID = EXCLUDED.Object_ID,
+    Object_Type = EXCLUDED.Object_Type,
+    Object_Name = EXCLUDED.Object_Name,
+    Object_Kind = EXCLUDED.Object_Kind,
+    Object_Hash = EXCLUDED.Object_Hash,
+    Bounds_Top = EXCLUDED.Bounds_Top,
+    Bounds_Left = EXCLUDED.Bounds_Left,
+    Bounds_Bottom = EXCLUDED.Bounds_Bottom,
+    Bounds_Right = EXCLUDED.Bounds_Right,
+    Parent_Object_ID = EXCLUDED.Parent_Object_ID,
+    Nesting_Level = EXCLUDED.Nesting_Level,
+    Hide_Calculation_Text = EXCLUDED.Hide_Calculation_Text,
+    Tooltip_Calculation_Text = EXCLUDED.Tooltip_Calculation_Text,
+    Label_Calculation_Text = EXCLUDED.Label_Calculation_Text,
+    ScriptTrigger_Parameter_Text = EXCLUDED.ScriptTrigger_Parameter_Text,
+    Text_Content = EXCLUDED.Text_Content,
+    Object_XML = EXCLUDED.Object_XML;
+
+
+-- ============================================
+-- XMLLayoutReferences (ersetzt Python extract_xml_references.py)
+-- ============================================
+-- Extrahiert UUID-Referenzen aus LayoutObjects direkt per xml_extract_text().
+CREATE TABLE IF NOT EXISTS XMLLayoutReferences (
+    Object_UUID VARCHAR,
+    Ref_Type VARCHAR,
+    Ref_UUID VARCHAR,
+    Ref_Name VARCHAR,
+    File_Name VARCHAR
+);
+
+-- Bestehende Einträge für diese Datei entfernen (Idempotenz)
+DELETE FROM XMLLayoutReferences WHERE File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+);
+
+-- Feld-Referenzen: LayoutObject/Field/FieldReference/@UUID
+WITH filename_normalized AS (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_layouts AS (
+    SELECT unnest(xml_extract_elements(xml, '//LayoutCatalog/Layout')) as layout_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+layout_parts AS (
+    SELECT unnest(xml_extract_elements(layout_xml, '/Layout/PartsList/Part')) as part_xml
+    FROM raw_layouts
+),
+all_layout_objects AS (
+    SELECT unnest(xml_extract_elements(part_xml, '//LayoutObject')) as object_xml
+    FROM layout_parts
+)
+INSERT INTO XMLLayoutReferences
+SELECT
+    xml_extract_text(object_xml, '/LayoutObject/UUID')[1] as Object_UUID,
+    'field' as Ref_Type,
+    xml_extract_text(object_xml, '/LayoutObject/Field/FieldReference/@UUID')[1] as Ref_UUID,
+    xml_extract_text(object_xml, '/LayoutObject/Field/FieldReference/@name')[1] as Ref_Name,
+    fn.File_Name
+FROM all_layout_objects CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(object_xml, '/LayoutObject/UUID')[1] IS NOT NULL
+  AND xml_extract_text(object_xml, '/LayoutObject/Field/FieldReference/@UUID')[1] IS NOT NULL;
+
+-- Script-Referenzen: //ScriptReference/@UUID (alle Nachfahren, via unnest)
+WITH filename_normalized AS (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_layouts AS (
+    SELECT unnest(xml_extract_elements(xml, '//LayoutCatalog/Layout')) as layout_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+layout_parts AS (
+    SELECT unnest(xml_extract_elements(layout_xml, '/Layout/PartsList/Part')) as part_xml
+    FROM raw_layouts
+),
+all_layout_objects AS (
+    SELECT unnest(xml_extract_elements(part_xml, '//LayoutObject')) as object_xml
+    FROM layout_parts
+)
+INSERT INTO XMLLayoutReferences
+SELECT
+    xml_extract_text(object_xml, '/LayoutObject/UUID')[1] as Object_UUID,
+    'script' as Ref_Type,
+    xml_extract_text(sr_xml, '/ScriptReference/@UUID')[1] as Ref_UUID,
+    xml_extract_text(sr_xml, '/ScriptReference/@name')[1] as Ref_Name,
+    fn.File_Name
+FROM all_layout_objects CROSS JOIN filename_normalized fn
+CROSS JOIN LATERAL unnest(
+    xml_extract_elements(object_xml, '//ScriptReference')
+) AS t(sr_xml)
+WHERE xml_extract_text(object_xml, '/LayoutObject/UUID')[1] IS NOT NULL
+  AND xml_extract_text(sr_xml, '/ScriptReference/@UUID')[1] IS NOT NULL;
+
+-- ValueList-Referenzen: LayoutObject/Field/Display/ValueListReference/@UUID (NEU)
+WITH filename_normalized AS (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_layouts AS (
+    SELECT unnest(xml_extract_elements(xml, '//LayoutCatalog/Layout')) as layout_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+layout_parts AS (
+    SELECT unnest(xml_extract_elements(layout_xml, '/Layout/PartsList/Part')) as part_xml
+    FROM raw_layouts
+),
+all_layout_objects AS (
+    SELECT unnest(xml_extract_elements(part_xml, '//LayoutObject')) as object_xml
+    FROM layout_parts
+)
+INSERT INTO XMLLayoutReferences
+SELECT
+    xml_extract_text(object_xml, '/LayoutObject/UUID')[1] as Object_UUID,
+    'valuelist' as Ref_Type,
+    xml_extract_text(object_xml, '/LayoutObject/Field/Display/ValueListReference/@UUID')[1] as Ref_UUID,
+    xml_extract_text(object_xml, '/LayoutObject/Field/Display/ValueListReference/@name')[1] as Ref_Name,
+    fn.File_Name
+FROM all_layout_objects CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(object_xml, '/LayoutObject/UUID')[1] IS NOT NULL
+  AND xml_extract_text(object_xml, '/LayoutObject/Field/Display/ValueListReference/@UUID')[1] IS NOT NULL;
+
+-- Portal → TableOccurrence: /LayoutObject/Portal/TableOccurrenceReference/@UUID (NEU)
+WITH filename_normalized AS (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_layouts AS (
+    SELECT unnest(xml_extract_elements(xml, '//LayoutCatalog/Layout')) as layout_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+layout_parts AS (
+    SELECT unnest(xml_extract_elements(layout_xml, '/Layout/PartsList/Part')) as part_xml
+    FROM raw_layouts
+),
+all_layout_objects AS (
+    SELECT unnest(xml_extract_elements(part_xml, '//LayoutObject')) as object_xml
+    FROM layout_parts
+)
+INSERT INTO XMLLayoutReferences
+SELECT
+    xml_extract_text(object_xml, '/LayoutObject/UUID')[1] as Object_UUID,
+    'table_occurrence' as Ref_Type,
+    xml_extract_text(object_xml, '/LayoutObject/Portal/TableOccurrenceReference/@UUID')[1] as Ref_UUID,
+    xml_extract_text(object_xml, '/LayoutObject/Portal/TableOccurrenceReference/@name')[1] as Ref_Name,
+    fn.File_Name
+FROM all_layout_objects CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(object_xml, '/LayoutObject/@type')[1] = 'Portal'
+  AND xml_extract_text(object_xml, '/LayoutObject/Portal/TableOccurrenceReference/@UUID')[1] IS NOT NULL;
+
+
+-- AccountsCatalog
+CREATE TABLE IF NOT EXISTS AccountsCatalog (
+    Account_ID BIGINT,
+    Account_Kind INTEGER,
+    Account_Type VARCHAR,
+    Is_Enabled BOOLEAN,
+    Account_UUID VARCHAR,
+    Description VARCHAR,
+    Account_Name VARCHAR,
+    Password_Encrypted VARCHAR,
+    PrivilegeSet_ID BIGINT,
+    PrivilegeSet_Name VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (Account_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO AccountsCatalog
+SELECT
+    a.id AS Account_ID,
+    a.kind AS Account_Kind,
+    a.type AS Account_Type,
+    a.enable AS Is_Enabled,
+    a.UUID."#text" AS Account_UUID,
+    a.Description AS Description,
+    a.Authentication.AccountName AS Account_Name,
+    a.Authentication.PasswordEncrypted AS Password_Encrypted,
+    a.PrivilegeSetReference.id AS PrivilegeSet_ID,
+    a.PrivilegeSetReference.name AS PrivilegeSet_Name,
+    fn.File_Name as File_Name
+FROM read_xml(
+    getvariable('fm_xml'),
+    root_element='AccountsCatalog',
+    record_element='ObjectList',
+    max_depth=10,
+    maximum_file_size=getvariable('max_filesize'),
+    columns={
+        'Account': 'STRUCT(
+            id BIGINT,
+            kind INTEGER,
+            type VARCHAR,
+            enable BOOLEAN,
+            "UUID" STRUCT("#text" VARCHAR, modifications BIGINT, userName VARCHAR, accountName VARCHAR, timestamp VARCHAR),
+            "Description" VARCHAR,
+            "Authentication" STRUCT(
+                "AccountName" VARCHAR,
+                "PasswordEncrypted" VARCHAR
+            ),
+            "PrivilegeSetReference" STRUCT(
+                id BIGINT,
+                name VARCHAR
+            )
+        )[]'
+    }
+)
+CROSS JOIN UNNEST(Account) AS t(a)
+CROSS JOIN filename_normalized fn
+WHERE a.id IS NOT NULL
+ON CONFLICT (Account_UUID, File_Name) DO UPDATE SET
+    Account_ID = EXCLUDED.Account_ID,
+    Account_Kind = EXCLUDED.Account_Kind,
+    Account_Type = EXCLUDED.Account_Type,
+    Is_Enabled = EXCLUDED.Is_Enabled,
+    Description = EXCLUDED.Description,
+    Account_Name = EXCLUDED.Account_Name,
+    Password_Encrypted = EXCLUDED.Password_Encrypted,
+    PrivilegeSet_ID = EXCLUDED.PrivilegeSet_ID,
+    PrivilegeSet_Name = EXCLUDED.PrivilegeSet_Name;
+
+
+-- PrivilegeSetsCatalog
+CREATE TABLE IF NOT EXISTS PrivilegeSetsCatalog (
+    PrivilegeSet_ID BIGINT,
+    PrivilegeSet_Name VARCHAR,
+    PrivilegeSet_UUID VARCHAR,
+    Description VARCHAR,
+    Is_Default_Access BOOLEAN,
+    Records_Create BOOLEAN,
+    Records_Edit BOOLEAN,
+    Records_Delete BOOLEAN,
+    Records_View VARCHAR,
+    Layouts_Create BOOLEAN,
+    Layouts_Edit BOOLEAN,
+    Layouts_Delete BOOLEAN,
+    Layouts_View VARCHAR,
+    Layouts_Custom BOOLEAN,
+    ValueLists_Create BOOLEAN,
+    ValueLists_Edit BOOLEAN,
+    ValueLists_Delete BOOLEAN,
+    ValueLists_View VARCHAR,
+    Scripts_Create BOOLEAN,
+    Scripts_Edit BOOLEAN,
+    Scripts_Delete BOOLEAN,
+    Scripts_View VARCHAR,
+    Other_Value INTEGER,
+    Allow_Print BOOLEAN,
+    Allow_Export BOOLEAN,
+    Manage_Database BOOLEAN,
+    Manage_Custom_Menus BOOLEAN,
+    Manage_Accounts BOOLEAN,
+    Manage_Ext_Privs BOOLEAN,
+    Allow_Override BOOLEAN,
+    Allow_Open_Quickly BOOLEAN,
+    Disconnect_Idle BOOLEAN,
+    Commands VARCHAR,
+    Password_Prohibit_Modification BOOLEAN,
+    File_Name VARCHAR,
+    PRIMARY KEY (PrivilegeSet_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+privilege_sets AS (
+    SELECT
+        unnest(xml_extract_elements(xml, '//PrivilegeSetsCatalog/ObjectList/PrivilegeSet')) as ps_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO PrivilegeSetsCatalog
+SELECT
+    xml_extract_text(ps_xml, '/PrivilegeSet/@id')[1]::BIGINT as PrivilegeSet_ID,
+    xml_extract_text(ps_xml, '/PrivilegeSet/@name')[1] as PrivilegeSet_Name,
+    xml_extract_text(ps_xml, '/PrivilegeSet/UUID')[1] as PrivilegeSet_UUID,
+    xml_extract_text(ps_xml, '/PrivilegeSet/Description')[1] as Description,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/@default')[1] = 'True' as Is_Default_Access,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Records/@Create')[1] = 'True' as Records_Create,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Records/@Edit')[1] = 'True' as Records_Edit,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Records/@Delete')[1] = 'True' as Records_Delete,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Records/@View')[1] as Records_View,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Layouts/@Create')[1] = 'True' as Layouts_Create,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Layouts/@Edit')[1] = 'True' as Layouts_Edit,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Layouts/@Delete')[1] = 'True' as Layouts_Delete,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Layouts/@View')[1] as Layouts_View,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Layouts/@Custom')[1] = 'True' as Layouts_Custom,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/ValueLists/@Create')[1] = 'True' as ValueLists_Create,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/ValueLists/@Edit')[1] = 'True' as ValueLists_Edit,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/ValueLists/@Delete')[1] = 'True' as ValueLists_Delete,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/ValueLists/@View')[1] as ValueLists_View,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Scripts/@Create')[1] = 'True' as Scripts_Create,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Scripts/@Edit')[1] = 'True' as Scripts_Edit,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Scripts/@Delete')[1] = 'True' as Scripts_Delete,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Scripts/@View')[1] as Scripts_View,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Other/@value')[1]::INTEGER as Other_Value,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Other/@Print')[1] = 'True' as Allow_Print,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Other/@Export')[1] = 'True' as Allow_Export,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Other/@manageDatabase')[1] = 'True' as Manage_Database,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Other/@manageCustomMenus')[1] = 'True' as Manage_Custom_Menus,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Other/@manageAccounts')[1] = 'True' as Manage_Accounts,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Other/@manageExtPrivs')[1] = 'True' as Manage_Ext_Privs,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Other/@allowOverride')[1] = 'True' as Allow_Override,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Other/@allowOpenQuickly')[1] = 'True' as Allow_Open_Quickly,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Other/@disconnectIdle')[1] = 'True' as Disconnect_Idle,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Other/@commands')[1] as Commands,
+    xml_extract_text(ps_xml, '/PrivilegeSet/access/Other/Password/@prohibitModification')[1] = 'True' as Password_Prohibit_Modification,
+    fn.File_Name as File_Name
+FROM privilege_sets
+CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(ps_xml, '/PrivilegeSet/@id')[1] IS NOT NULL
+ON CONFLICT (PrivilegeSet_UUID, File_Name) DO UPDATE SET
+    PrivilegeSet_ID = EXCLUDED.PrivilegeSet_ID,
+    PrivilegeSet_Name = EXCLUDED.PrivilegeSet_Name,
+    Description = EXCLUDED.Description,
+    Is_Default_Access = EXCLUDED.Is_Default_Access,
+    Records_Create = EXCLUDED.Records_Create,
+    Records_Edit = EXCLUDED.Records_Edit,
+    Records_Delete = EXCLUDED.Records_Delete,
+    Records_View = EXCLUDED.Records_View,
+    Layouts_Create = EXCLUDED.Layouts_Create,
+    Layouts_Edit = EXCLUDED.Layouts_Edit,
+    Layouts_Delete = EXCLUDED.Layouts_Delete,
+    Layouts_View = EXCLUDED.Layouts_View,
+    Layouts_Custom = EXCLUDED.Layouts_Custom,
+    ValueLists_Create = EXCLUDED.ValueLists_Create,
+    ValueLists_Edit = EXCLUDED.ValueLists_Edit,
+    ValueLists_Delete = EXCLUDED.ValueLists_Delete,
+    ValueLists_View = EXCLUDED.ValueLists_View,
+    Scripts_Create = EXCLUDED.Scripts_Create,
+    Scripts_Edit = EXCLUDED.Scripts_Edit,
+    Scripts_Delete = EXCLUDED.Scripts_Delete,
+    Scripts_View = EXCLUDED.Scripts_View,
+    Other_Value = EXCLUDED.Other_Value,
+    Allow_Print = EXCLUDED.Allow_Print,
+    Allow_Export = EXCLUDED.Allow_Export,
+    Manage_Database = EXCLUDED.Manage_Database,
+    Manage_Custom_Menus = EXCLUDED.Manage_Custom_Menus,
+    Manage_Accounts = EXCLUDED.Manage_Accounts,
+    Manage_Ext_Privs = EXCLUDED.Manage_Ext_Privs,
+    Allow_Override = EXCLUDED.Allow_Override,
+    Allow_Open_Quickly = EXCLUDED.Allow_Open_Quickly,
+    Disconnect_Idle = EXCLUDED.Disconnect_Idle,
+    Commands = EXCLUDED.Commands,
+    Password_Prohibit_Modification = EXCLUDED.Password_Prohibit_Modification;
+
+
+-- ========================================
+-- DDR_INFO Integration (FileMaker 21+)
+--
+-- HINWEIS: Diese Tabellen werden immer erstellt, bleiben aber leer,
+-- wenn die XML-Datei kein Has_DDR_INFO="True" Attribut hat.
+-- Prüfe XMLMetadata.Has_DDR_INFO um zu sehen, ob DDR-Info verfügbar ist.
+-- ========================================
+
+-- DDR_ScriptSteps: Lesbare Script-Schritte aus DDR_INFO
+CREATE TABLE IF NOT EXISTS DDR_ScriptSteps (
+    Step_UUID VARCHAR,
+    Step_Hash VARCHAR,
+    Step_Text VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (Step_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+ddr_script_raw AS (
+    SELECT
+        unnest(xml_extract_elements(xml, '//DDR_INFO/Script/ObjectList/*')) as step_elem
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO DDR_ScriptSteps
+SELECT
+    regexp_extract(
+        step_elem::VARCHAR,
+        '<_([0-9A-F-]+)',
+        1
+    ) as Step_UUID,
+    xml_extract_text(step_elem, '//*/@hash')[1] as Step_Hash,
+    xml_extract_text(step_elem, '//text()')[1] as Step_Text,
+    fn.File_Name as File_Name
+FROM ddr_script_raw
+CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(step_elem, '//*/@datatype')[1] = 'StepText'
+ON CONFLICT (Step_UUID, File_Name) DO UPDATE SET
+    Step_Hash = EXCLUDED.Step_Hash,
+    Step_Text = EXCLUDED.Step_Text;
+
+
+-- DDR_Calculations: Formel-Chunks für Abhängigkeitsanalyse
+CREATE TABLE IF NOT EXISTS DDR_Calculations (
+    Calc_UUID VARCHAR,
+    Calc_Hash VARCHAR,
+    Chunk_Index BIGINT,
+    Chunk_Type VARCHAR,
+    Chunk_Content VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (Calc_UUID, Chunk_Index, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+ddr_calc_raw AS (
+    SELECT
+        unnest(xml_extract_elements(xml, '//DDR_INFO/Calculation/ObjectList/*')) as calc_elem
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+calc_with_chunks AS (
+    SELECT
+        regexp_extract(
+            calc_elem::VARCHAR,
+            '<_([0-9A-F-]+)',
+            1
+        ) as Calc_UUID,
+        xml_extract_text(calc_elem, '//*/@hash')[1] as Calc_Hash,
+        unnest(xml_extract_elements(calc_elem, '//ChunkList/Chunk')) as chunk_xml
+    FROM ddr_calc_raw
+    WHERE xml_extract_text(calc_elem, '//*/@datatype')[1] = 'ChunkList'
+)
+INSERT INTO DDR_Calculations
+SELECT
+    Calc_UUID,
+    Calc_Hash,
+    ROW_NUMBER() OVER (PARTITION BY Calc_UUID ORDER BY (SELECT NULL)) as Chunk_Index,
+    xml_extract_text(chunk_xml, '@type')[1] as Chunk_Type,
+    COALESCE(
+        xml_extract_text(chunk_xml, 'text()')[1],
+        chunk_xml::VARCHAR
+    ) as Chunk_Content,
+    fn.File_Name as File_Name
+FROM calc_with_chunks
+CROSS JOIN filename_normalized fn
+ON CONFLICT (Calc_UUID, Chunk_Index, File_Name) DO UPDATE SET
+    Calc_Hash = EXCLUDED.Calc_Hash,
+    Chunk_Type = EXCLUDED.Chunk_Type,
+    Chunk_Content = EXCLUDED.Chunk_Content;
+
+
+-- ============================================
+-- PHASE 4: OPTIONALE KATALOGE
+-- ============================================
+
+
+-- ============================================
+-- 20. PasteIndexList
+-- ============================================
+-- Sehr einfach: Liste von Object-IDs
+-- Wird verwendet für Copy/Paste Operations
+CREATE TABLE IF NOT EXISTS PasteIndexList (
+    Object_ID BIGINT,
+    List_Index BIGINT,
+    File_Name VARCHAR,
+    PRIMARY KEY (Object_ID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+paste_objects AS (
+    SELECT
+        unnest(xml_extract_elements(xml, '//PasteIndexList/Object')) as object_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO PasteIndexList
+SELECT
+    xml_extract_text(object_xml, '/Object/@id')[1]::BIGINT as Object_ID,
+    ROW_NUMBER() OVER (ORDER BY Object_ID) as List_Index,
+    fn.File_Name as File_Name
+FROM paste_objects
+CROSS JOIN filename_normalized fn
+WHERE Object_ID IS NOT NULL
+ON CONFLICT (Object_ID, File_Name) DO UPDATE SET
+    List_Index = EXCLUDED.List_Index;
+
+
+-- ============================================
+-- 21. BaseDirectoryCatalog
+-- ============================================
+-- Basis-Directory der FileMaker-Datei
+-- Pattern: XPath für nested Element
+CREATE TABLE IF NOT EXISTS BaseDirectoryCatalog (
+    BD_Name VARCHAR,
+    BD_ID BIGINT,
+    BD_RelativeTo VARCHAR,
+    BD_UUID VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (BD_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_dir AS (
+    SELECT
+        unnest(xml_extract_elements(xml, '//BaseDirectoryCatalog/BaseDirectory')) as dir_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO BaseDirectoryCatalog
+SELECT
+    xml_extract_text(dir_xml, '/BaseDirectory/@name')[1] as BD_Name,
+    xml_extract_text(dir_xml, '/BaseDirectory/@id')[1]::BIGINT as BD_ID,
+    xml_extract_text(dir_xml, '/BaseDirectory/@relativeTo')[1] as BD_RelativeTo,
+    xml_extract_text(dir_xml, '/BaseDirectory/UUID/text()')[1] as BD_UUID,
+    fn.File_Name as File_Name
+FROM raw_dir
+CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(dir_xml, '/BaseDirectory/@id')[1] IS NOT NULL
+ON CONFLICT (BD_UUID, File_Name) DO UPDATE SET
+    BD_Name = EXCLUDED.BD_Name,
+    BD_ID = EXCLUDED.BD_ID,
+    BD_RelativeTo = EXCLUDED.BD_RelativeTo;
+
+
+-- ============================================
+-- 22. ScriptTriggers
+-- ============================================
+-- Script Trigger (OnFirstWindowOpen, OnLastWindowClose, etc.)
+-- Pattern: XPath für nested Element in Metadata
+CREATE TABLE IF NOT EXISTS ScriptTriggers (
+    Trigger_ID BIGINT,
+    Trigger_Action VARCHAR,
+    Trigger_BrowseMode VARCHAR,
+    Script_ID BIGINT,
+    Script_Name VARCHAR,
+    Script_UUID VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (Trigger_ID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_triggers AS (
+    SELECT
+        unnest(xml_extract_elements(xml, '//ScriptTriggers/ScriptTrigger')) as trigger_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO ScriptTriggers
+SELECT
+    xml_extract_text(trigger_xml, '/ScriptTrigger/@id')[1]::BIGINT as Trigger_ID,
+    xml_extract_text(trigger_xml, '/ScriptTrigger/@action')[1] as Trigger_Action,
+    xml_extract_text(trigger_xml, '/ScriptTrigger/@browseMode')[1] as Trigger_BrowseMode,
+
+    -- Script-Referenz
+    xml_extract_text(trigger_xml, '/ScriptTrigger/ScriptReference/@id')[1]::BIGINT as Script_ID,
+    xml_extract_text(trigger_xml, '/ScriptTrigger/ScriptReference/@name')[1] as Script_Name,
+    xml_extract_text(trigger_xml, '/ScriptTrigger/ScriptReference/@UUID')[1] as Script_UUID,
+
+    fn.File_Name as File_Name
+
+FROM raw_triggers
+CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(trigger_xml, '/ScriptTrigger/@id')[1] IS NOT NULL
+ON CONFLICT (Trigger_ID, File_Name) DO UPDATE SET
+    Trigger_Action = EXCLUDED.Trigger_Action,
+    Trigger_BrowseMode = EXCLUDED.Trigger_BrowseMode,
+    Script_ID = EXCLUDED.Script_ID,
+    Script_Name = EXCLUDED.Script_Name,
+    Script_UUID = EXCLUDED.Script_UUID;
+
+
+-- ============================================
+-- 23. ExtendedPrivilegesCatalog
+-- ============================================
+-- Erweiterte Berechtigungen (fmwebdirect, fmxdbc, fmapp, etc.)
+-- Pattern: XPath mit UNNEST für PrivilegeSetReferences
+CREATE TABLE IF NOT EXISTS ExtendedPrivilegesCatalog (
+    EP_ID BIGINT,
+    EP_Name VARCHAR,
+    EP_Description VARCHAR,
+    EP_UUID VARCHAR,
+    PrivilegeSet_IDs BIGINT[],
+    PrivilegeSet_Names VARCHAR[],
+    File_Name VARCHAR,
+    PRIMARY KEY (EP_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_privileges AS (
+    SELECT
+        unnest(xml_extract_elements(xml, '//ExtendedPrivilegesCatalog/ObjectList/ExtendedPrivilege')) as priv_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO ExtendedPrivilegesCatalog
+SELECT
+    xml_extract_text(priv_xml, '/ExtendedPrivilege/@id')[1]::BIGINT as EP_ID,
+    xml_extract_text(priv_xml, '/ExtendedPrivilege/@name')[1] as EP_Name,
+    xml_extract_text(priv_xml, '/ExtendedPrivilege/Description/text()')[1] as EP_Description,
+    xml_extract_text(priv_xml, '/ExtendedPrivilege/UUID/text()')[1] as EP_UUID,
+
+    -- Array of PrivilegeSet IDs und Namen
+    list(xml_extract_text(ps_xml, '/PrivilegeSetReference/@id')[1]::BIGINT) as PrivilegeSet_IDs,
+    list(xml_extract_text(ps_xml, '/PrivilegeSetReference/@name')[1]) as PrivilegeSet_Names,
+
+    fn.File_Name as File_Name
+
+FROM raw_privileges
+CROSS JOIN filename_normalized fn
+LEFT JOIN LATERAL (
+    SELECT unnest(xml_extract_elements(priv_xml, '//ObjectList/PrivilegeSetReference')) as ps_xml
+) ps ON true
+GROUP BY EP_ID, EP_Name, EP_Description, EP_UUID, fn.File_Name
+ON CONFLICT (EP_UUID, File_Name) DO UPDATE SET
+    EP_ID = EXCLUDED.EP_ID,
+    EP_Name = EXCLUDED.EP_Name,
+    EP_Description = EXCLUDED.EP_Description,
+    PrivilegeSet_IDs = EXCLUDED.PrivilegeSet_IDs,
+    PrivilegeSet_Names = EXCLUDED.PrivilegeSet_Names;
+
+
+-- ============================================
+-- 24. CustomMenuCatalog
+-- ============================================
+-- Benutzerdefinierte Menüs mit verschachtelter Hierarchie
+-- Pattern: XPath mit JSON für polymorphe Strukturen
+CREATE TABLE IF NOT EXISTS CustomMenuCatalog (
+    Menu_ID BIGINT,
+    Menu_Name VARCHAR,
+    Menu_UUID VARCHAR,
+    Menu_XML VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (Menu_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_menus AS (
+    SELECT
+        unnest(xml_extract_elements(xml, '//CustomMenuCatalog/CustomMenu')) as menu_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO CustomMenuCatalog
+SELECT
+    xml_extract_text(menu_xml, '/CustomMenu/@id')[1]::BIGINT as Menu_ID,
+    xml_extract_text(menu_xml, '/CustomMenu/@name')[1] as Menu_Name,
+    xml_extract_text(menu_xml, '/CustomMenu/UUID/text()')[1] as Menu_UUID,
+
+    -- Vollständige Menü-Struktur als XML (enthält verschachtelte Items)
+    menu_xml::VARCHAR as Menu_XML,
+
+    fn.File_Name as File_Name
+
+FROM raw_menus
+CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(menu_xml, '/CustomMenu/@id')[1] IS NOT NULL
+ON CONFLICT (Menu_UUID, File_Name) DO UPDATE SET
+    Menu_ID = EXCLUDED.Menu_ID,
+    Menu_Name = EXCLUDED.Menu_Name,
+    Menu_XML = EXCLUDED.Menu_XML;
+
+
+-- ============================================
+-- 25. ThemeCatalog
+-- ============================================
+-- CSS-Regelsätze für Layouts
+-- Pattern: XPath mit JSON für CSS-Strukturen
+-- HINWEIS: Theme-Struktur ist sehr komplex mit CSS-Definitionen
+CREATE TABLE IF NOT EXISTS ThemeCatalog (
+    Theme_ID BIGINT,
+    Theme_Name VARCHAR,
+    Theme_UUID VARCHAR,
+    Theme_XML VARCHAR,
+    File_Name VARCHAR,
+    PRIMARY KEY (Theme_UUID, File_Name)
+);
+
+WITH filename_normalized AS (
+    SELECT
+        regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1],
+            '\.fmp12$',
+            ''
+        ) as File_Name
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+raw_themes AS (
+    SELECT
+        unnest(xml_extract_elements(xml, '//ThemeCatalog/Theme')) as theme_xml
+    FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+)
+INSERT INTO ThemeCatalog
+SELECT
+    xml_extract_text(theme_xml, '/Theme/@id')[1]::BIGINT as Theme_ID,
+    xml_extract_text(theme_xml, '/Theme/@name')[1] as Theme_Name,
+    xml_extract_text(theme_xml, '/Theme/UUID/text()')[1] as Theme_UUID,
+
+    -- Vollständige Theme-Struktur als JSON (enthält CSS-Regelsätze)
+    theme_xml::VARCHAR as Theme_XML,
+
+    fn.File_Name as File_Name
+
+FROM raw_themes
+CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(theme_xml, '/Theme/@id')[1] IS NOT NULL
+ON CONFLICT (Theme_UUID, File_Name) DO UPDATE SET
+    Theme_ID = EXCLUDED.Theme_ID,
+    Theme_Name = EXCLUDED.Theme_Name,
+    Theme_XML = EXCLUDED.Theme_XML;
+
+
+-- ============================================
+-- IMPLEMENTIERUNGS-STATUS
+-- ============================================
+-- ✅ Phase 0: Basis-Kataloge (10 Tabellen)
+-- ✅ Phase 1: Erweiterte Basis-Kataloge (5 Tabellen)
+-- ✅ Phase 2: DDR_INFO Integration (3 Tabellen)
+-- ✅ Phase 3: Layout-Objekte (1 Tabelle)
+-- ✅ Phase 4: Optionale Kataloge (6 Tabellen)
+--
+-- GESAMT: 25 Tabellen erfolgreich implementiert
+
+
+

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm:*)",
+      "Bash(duckdb:*)",
+      "Bash(bash .claude/skills/*:*)"
+    ]
+  },
+  "extraKnownMarketplaces": {
+    "duckdb-skills": {
+      "source": { "source": "github", "repo": "duckdb/duckdb-skills" }
+    }
+  },
+  "enabledPlugins": {
+    "duckdb-skills@duckdb-skills": true
+  }
+}

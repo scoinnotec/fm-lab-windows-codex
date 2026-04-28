@@ -1,0 +1,50 @@
+# macOS-spezifische Dateien
+.DS_Store
+
+# Umgebungsvariablen-Dateien
+.env
+.env.local
+
+# IDE-spezifische Dateien
+.vscode/
+.idea/
+
+# Log-Dateien
+*.log
+logs/*
+!logs/.gitkeep
+
+# Datenbank-Dateien
+*.duckdb
+*.duckdb.wal
+db/*
+!db/.gitkeep
+
+# XML Dateien
+xml/*
+!xml/.gitkeep
+
+# Docs Verzeichnis (per Install-Skills nachgeladen)
+docs/*
+!docs/.gitkeep
+
+# Node.js Dependencies
+node_modules/
+package-lock.json
+
+# Workspaces - Build Artifacts
+rest-api/logs
+rest-api/.env
+packages/shared/dist/
+packages/shared/generated/*.js
+packages/shared/generated/*.d.ts
+packages/shared/generated/*.map
+apps/*/node_modules
+apps/*/dist
+apps/*/build
+apps/*/.env.local
+apps/*/.env.production
+
+# Claude lokale Settings
+.claude/settings.local.json
+.claude/worktrees/

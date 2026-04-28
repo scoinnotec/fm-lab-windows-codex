@@ -1,0 +1,509 @@
+/* Detail View Styles */
+
+/* Navigation */
+.detail-nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+/* Back button */
+.back-button {
+  background: none;
+  border: 1px solid #646cff;
+  color: #646cff;
+  padding: 0.3rem 0.6rem;
+  white-space: nowrap;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.back-button:hover {
+  background: #646cff;
+  color: #fff;
+}
+
+/* Breadcrumb links */
+.breadcrumb-link {
+  background: none;
+  border: none;
+  color: #646cff;
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+  font-family: inherit;
+  text-decoration: underline;
+}
+
+.breadcrumb-link:hover {
+  color: #535bf2;
+}
+
+/* Object Header */
+.detail-object-header {
+  padding: 1rem;
+  background-color: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+}
+
+.detail-file-name {
+  margin-bottom: 0.25rem;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.detail-title {
+  margin: 0 0 0.4rem;
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.detail-source {
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.detail-uuid-row {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.detail-uuid-row code {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+/* Copy button */
+.copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0.25rem;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #666;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.copy-button:hover {
+  color: #646cff;
+  border-color: #646cff;
+  background: transparent;
+}
+
+.copy-button.copied {
+  color: #6bff6b;
+}
+
+/* Separator */
+.detail-separator {
+  border: none;
+  border-top: 1px solid #2a2a2a;
+  margin: 1rem 0;
+}
+
+/* Hierarchy Tree */
+.hierarchy-tree {
+  margin-top: 1rem;
+}
+
+.hierarchy-section {
+  margin-bottom: 1.5rem;
+}
+
+.hierarchy-section h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #aaa;
+}
+
+.reference-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.reference-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #2a2a2a;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.reference-item:last-child {
+  border-bottom: none;
+}
+
+.reference-item:hover {
+  background-color: #2a2a2a;
+}
+
+.reference-item:focus-visible {
+  outline: 2px solid #646cff;
+  outline-offset: -2px;
+}
+
+.ref-name {
+  flex: 1;
+  color: #646cff;
+  font-weight: 500;
+}
+
+.ref-file {
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.cross-file-badge {
+  font-size: 0.75rem;
+  background: #ff9800;
+  color: #000;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.ref-role {
+  font-size: 0.8rem;
+  color: #666;
+  font-style: italic;
+}
+
+.no-references {
+  padding: 1.5rem;
+  text-align: center;
+  color: #666;
+}
+
+/* Sub-navigation tabs (Phase 3b) */
+.detail-tab-nav {
+  display: flex;
+  gap: 0;
+  margin-top: 0.75rem;
+}
+
+.tab-button {
+  background: none;
+  border: 1px solid #2a2a2a;
+  border-left: none;
+  color: #888;
+  padding: 0.4rem 1rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-family: inherit;
+  transition: color 0.2s, background-color 0.2s, border-color 0.2s;
+}
+
+.tab-button:first-child {
+  border-left: 1px solid #2a2a2a;
+  border-radius: 4px 0 0 4px;
+}
+
+.tab-button:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.tab-button:hover:not(.disabled) {
+  color: #ccc;
+  background-color: #2a2a2a;
+}
+
+.tab-button.active {
+  color: #646cff;
+  border-color: #646cff;
+  background-color: #1a1a3a;
+}
+
+.tab-button.disabled {
+  color: #555;
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* Tab placeholder for not-yet-implemented tabs */
+.tab-placeholder {
+  padding: 2rem 1.5rem;
+  text-align: center;
+  color: #666;
+  font-style: italic;
+}
+
+/* Type Detail heading */
+.type-detail-heading {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  color: #aaa;
+}
+
+/* Object Detail (unified for all object types) */
+.object-detail {
+  margin-top: 1rem;
+}
+
+.content-text {
+  background-color: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: #d4d4d4;
+  tab-size: 2;
+  margin: 0;
+}
+
+.content-text code {
+  display: block;
+  white-space: pre;
+}
+
+.content-line {
+  display: inline;
+}
+
+.content-line:hover {
+  background-color: #1a1a2e;
+}
+
+/* Layout SVG container */
+.layout-svg-container {
+  background-color: #ffffff;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 0.5rem;
+  overflow: auto;
+  max-height: 80vh;
+}
+
+.layout-svg-container svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Dependency Graph */
+.dependency-graph-wrapper {
+  margin-top: 1rem;
+  position: relative;
+}
+
+.dependency-graph-container {
+  width: 100%;
+  min-height: 500px;
+  height: 60vh;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  background-color: #1a1a1a;
+}
+
+.graph-controls {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.graph-control-button {
+  background: none;
+  border: 1px solid #2a2a2a;
+  color: #888;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-family: inherit;
+  transition: color 0.2s, border-color 0.2s, background-color 0.2s;
+}
+
+.graph-control-button:hover {
+  color: #646cff;
+  border-color: #646cff;
+  background-color: #1a1a3a;
+}
+
+.graph-legend {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.75rem;
+  color: #666;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.legend-dot-dashed {
+  background: transparent;
+  border: 2px dashed;
+  width: 16px;
+  height: 0;
+  border-radius: 0;
+}
+
+.legend-hint {
+  margin-left: auto;
+  font-style: italic;
+  color: #555;
+}
+
+/* Title row with fmIDE button */
+.detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.4rem;
+}
+
+.detail-title-row .detail-title {
+  margin: 0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .detail-object-header {
+    padding: 0.75rem;
+  }
+
+  .reference-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* Light Mode */
+@media (prefers-color-scheme: light) {
+  .detail-object-header {
+    background-color: #f9f9f9;
+    border-color: #e0e0e0;
+  }
+
+  .detail-separator {
+    border-top-color: #e0e0e0;
+  }
+
+  .reference-item {
+    border-bottom-color: #e0e0e0;
+  }
+
+  .reference-item:hover {
+    background-color: #e8f4ff;
+  }
+
+  .hierarchy-section h2 {
+    color: #555;
+  }
+
+  .back-button:hover {
+    background: #646cff;
+    color: #fff;
+  }
+
+  .error-detail {
+    background: #ffe0e0;
+    border-color: #ffb0b0;
+    color: #cc0000;
+  }
+
+  .tab-button {
+    border-color: #e0e0e0;
+    color: #666;
+  }
+
+  .tab-button:first-child {
+    border-left-color: #e0e0e0;
+  }
+
+  .tab-button:hover:not(.disabled) {
+    color: #333;
+    background-color: #f0f0f0;
+  }
+
+  .tab-button.active {
+    color: #646cff;
+    border-color: #646cff;
+    background-color: #eef0ff;
+  }
+
+  .tab-button.disabled {
+    color: #aaa;
+  }
+
+  .tab-placeholder {
+    color: #999;
+  }
+
+  .type-detail-heading {
+    color: #555;
+  }
+
+  .content-text {
+    background-color: #f5f5f5;
+    border-color: #e0e0e0;
+    color: #333;
+  }
+
+  .content-line:hover {
+    background-color: #e8f4ff;
+  }
+
+  .layout-svg-container {
+    border-color: #e0e0e0;
+  }
+
+  .dependency-graph-container {
+    background-color: #f9f9f9;
+    border-color: #e0e0e0;
+  }
+
+  .graph-control-button {
+    border-color: #e0e0e0;
+    color: #666;
+  }
+
+  .graph-control-button:hover {
+    color: #646cff;
+    border-color: #646cff;
+    background-color: #eef0ff;
+  }
+
+  .graph-legend {
+    color: #999;
+  }
+
+  .legend-hint {
+    color: #aaa;
+  }
+}

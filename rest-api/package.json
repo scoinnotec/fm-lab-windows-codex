@@ -1,0 +1,40 @@
+{
+  "name": "filemaker-duckdb-api",
+  "version": "0.6.0",
+  "description": "REST API for FileMaker DuckDB Analysis",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
+  },
+  "keywords": [
+    "filemaker",
+    "duckdb",
+    "rest-api",
+    "analysis"
+  ],
+  "author": "Marcel Moré",
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "duckdb": "^1.4.3",
+    "express": "^5.2.1",
+    "glob": "^13.0.0",
+    "joi": "^18.0.2",
+    "lru-cache": "^11.2.4",
+    "morgan": "^1.10.1"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0",
+    "nodemon": "^3.1.11",
+    "supertest": "^7.2.2"
+  }
+}

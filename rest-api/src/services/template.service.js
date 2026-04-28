@@ -1,0 +1,335 @@
+const fs = require('fs').promises;
+const path = require('path');
+const { LRUCache } = require('lru-cache');
+const environment = require('../config/environment');
+const { createError } = require('../middleware/error-handler');
+const db = require('../config/database');
+
+/**
+ * Template Service
+ * Handles SQL template loading, caching, parsing, and execution
+ */
+
+// LRU Cache for template storage
+const templateCache = new LRUCache({
+  max: 100, // Maximum 100 templates
+  ttl: 1000 * 60 * 60, // 1 hour TTL
+  updateAgeOnGet: true,
+});
+
+/**
+ * Parse template metadata from SQL comments
+ * @param {string} templateContent - Template file content
+ * @returns {Object} Parsed metadata
+ */
+function parseTemplateMetadata(templateContent) {
+  const metadata = {
+    template_type: 'report', // Default to report for max flexibility
+    description: null,
+    params: [],
+    output_format: null,
+    author: null,
+    version: null,
+    tags: [],
+  };
+
+  const lines = templateContent.split('\n');
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Parse metadata comments
+    if (trimmed.startsWith('-- @template_type:')) {
+      metadata.template_type = trimmed.substring(18).trim();
+    } else if (trimmed.startsWith('-- @description:')) {
+      metadata.description = trimmed.substring(16).trim();
+    } else if (trimmed.startsWith('-- @params:')) {
+      const paramsStr = trimmed.substring(11).trim();
+      metadata.params = paramsStr.split(',').map(p => p.trim()).filter(p => p.length > 0);
+    } else if (trimmed.startsWith('-- @output_format:')) {
+      metadata.output_format = trimmed.substring(18).trim();
+    } else if (trimmed.startsWith('-- @author:')) {
+      metadata.author = trimmed.substring(11).trim();
+    } else if (trimmed.startsWith('-- @version:')) {
+      metadata.version = trimmed.substring(12).trim();
+    } else if (trimmed.startsWith('-- @tags:')) {
+      const tagsStr = trimmed.substring(9).trim();
+      metadata.tags = tagsStr.split(',').map(t => t.trim()).filter(t => t.length > 0);
+    }
+  }
+
+  return metadata;
+}
+
+/**
+ * Load template from file with caching
+ * @param {string} templateName - Template name (without .sql extension)
+ * @param {string} templateDir - Directory to load from
+ * @returns {Promise<Object>} Template content and metadata
+ */
+async function loadTemplate(templateName, templateDir) {
+  // Check cache first (only if caching is enabled)
+  const cacheKey = `${templateDir}:${templateName}`;
+  if (environment.templates.cacheEnabled) {
+    const cached = templateCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+  }
+
+  // Load template from file
+  const templatePath = path.join(templateDir, `${templateName}.sql`);
+
+  try {
+    const content = await fs.readFile(templatePath, 'utf-8');
+    const metadata = parseTemplateMetadata(content);
+
+    const template = {
+      name: templateName,
+      content,
+      metadata,
+      path: templatePath,
+    };
+
+    // Cache the template (only if caching is enabled)
+    if (environment.templates.cacheEnabled) {
+      templateCache.set(cacheKey, template);
+    }
+
+    return template;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      throw createError(
+        'TEMPLATE_NOT_FOUND',
+        `Template '${templateName}' not found in ${templateDir}`,
+        { templateName, templateDir }
+      );
+    }
+    throw createError('TEMPLATE_ERROR', `Failed to load template: ${error.message}`, {
+      templateName,
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Interpolate template variables with parameters
+ * Supports three formats:
+ * - DuckDB-style: getvariable('var_name')
+ * - Named parameters: :var_name
+ * - Positional parameters: $1, $2, etc.
+ *
+ * @param {string} templateContent - Template SQL content
+ * @param {Object} params - Parameters to interpolate
+ * @returns {string} Interpolated SQL
+ */
+function interpolateTemplate(templateContent, params = {}) {
+  let sql = templateContent;
+
+  // Escape single quotes in string parameters
+  const escapeParam = (value) => {
+    if (value === null || value === undefined) {
+      return 'NULL';
+    }
+    if (typeof value === 'string') {
+      return `'${value.replace(/'/g, "''")}'`;
+    }
+    if (typeof value === 'boolean') {
+      return value ? 'TRUE' : 'FALSE';
+    }
+    return String(value);
+  };
+
+  // 1. Replace DuckDB-style getvariable('var_name')
+  sql = sql.replace(/getvariable\('([^']+)'\)/g, (match, varName) => {
+    if (varName in params) {
+      return escapeParam(params[varName]);
+    }
+    // Keep NULL for missing parameters
+    return 'NULL';
+  });
+
+  // 2. Replace named parameters :var_name
+  sql = sql.replace(/:(\w+)/g, (match, varName) => {
+    if (varName in params) {
+      return escapeParam(params[varName]);
+    }
+    return 'NULL';
+  });
+
+  // 3. Replace positional parameters $1, $2, etc.
+  sql = sql.replace(/\$(\d+)/g, (match, position) => {
+    const index = parseInt(position, 10) - 1;
+    const paramsArray = Object.values(params);
+    if (index >= 0 && index < paramsArray.length) {
+      return escapeParam(paramsArray[index]);
+    }
+    return 'NULL';
+  });
+
+  return sql;
+}
+
+/**
+ * Validate template output based on template type
+ * @param {Array} rows - Query result rows
+ * @param {Object} metadata - Template metadata
+ * @throws {Error} If validation fails
+ */
+function validateTemplateOutput(rows, metadata) {
+  if (rows.length === 0) {
+    return; // Empty result is valid
+  }
+
+  const firstRow = rows[0];
+
+  // Validate object templates
+  if (metadata.template_type === 'object') {
+    const requiredColumns = ['uuid', 'name', 'type'];
+    const missingColumns = requiredColumns.filter(col => !(col in firstRow));
+
+    if (missingColumns.length > 0) {
+      throw createError(
+        'TEMPLATE_ERROR',
+        `Object template must return columns: ${requiredColumns.join(', ')}. Missing: ${missingColumns.join(', ')}`,
+        { metadata, missingColumns }
+      );
+    }
+  }
+
+  // Validate content templates
+  if (metadata.template_type === 'content') {
+    // Support both lowercase and uppercase
+    const hasContent = 'content' in firstRow || 'Content' in firstRow;
+
+    if (!hasContent) {
+      throw createError(
+        'TEMPLATE_ERROR',
+        'Content template must return a "content" column',
+        { metadata, columns: Object.keys(firstRow) }
+      );
+    }
+  }
+
+  // Report templates have no column requirements
+}
+
+/**
+ * Execute SQL template with parameters
+ * @param {string} templateName - Template name (without .sql extension)
+ * @param {Object} params - Template parameters
+ * @param {string} source - 'query' or 'report' (determines directory)
+ * @returns {Promise<Object>} Query results with metadata
+ */
+async function executeTemplate(templateName, params = {}, source = 'query') {
+  try {
+    // Determine template directory based on source
+    const templateDir =
+      source === 'report'
+        ? environment.templates.dir // Standard templates for /report
+        : environment.templates.customDir; // Custom templates for /query
+
+    // Load template
+    const template = await loadTemplate(templateName, templateDir);
+
+    // Interpolate parameters
+    const sql = interpolateTemplate(template.content, params);
+
+    // Execute query
+    const result = await db.executeQuery(sql);
+
+    // Validate output
+    validateTemplateOutput(result.rows, template.metadata);
+
+    // Convert BigInts to Numbers
+    const convertBigInts = (obj) => {
+      if (Array.isArray(obj)) {
+        return obj.map(convertBigInts);
+      } else if (obj !== null && typeof obj === 'object') {
+        const converted = {};
+        for (const [key, value] of Object.entries(obj)) {
+          converted[key] = typeof value === 'bigint' ? Number(value) : convertBigInts(value);
+        }
+        return converted;
+      }
+      return obj;
+    };
+
+    return {
+      data: convertBigInts(result.rows),
+      meta: {
+        ...result.meta,
+        template_type: template.metadata.template_type,
+        template_name: templateName,
+        template_description: template.metadata.description,
+        params_used: params,
+      },
+      sql, // Return interpolated SQL for debug mode
+    };
+  } catch (error) {
+    if (error.code) throw error;
+    throw createError('TEMPLATE_ERROR', `Template execution failed: ${error.message}`, {
+      templateName,
+      params,
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * List all available templates in a directory
+ * @param {string} source - 'query' or 'report'
+ * @returns {Promise<Array>} List of template names and metadata
+ */
+async function listTemplates(source = 'query') {
+  try {
+    const templateDir =
+      source === 'report' ? environment.templates.dir : environment.templates.customDir;
+
+    const files = await fs.readdir(templateDir);
+    const sqlFiles = files.filter(f => f.endsWith('.sql'));
+
+    const templates = await Promise.all(
+      sqlFiles.map(async file => {
+        const templateName = path.basename(file, '.sql');
+        try {
+          const template = await loadTemplate(templateName, templateDir);
+          return {
+            name: templateName,
+            description: template.metadata.description,
+            template_type: template.metadata.template_type,
+            params: template.metadata.params,
+            tags: template.metadata.tags,
+          };
+        } catch (error) {
+          // Skip templates that fail to load
+          return null;
+        }
+      })
+    );
+
+    return templates.filter(t => t !== null);
+  } catch (error) {
+    throw createError('TEMPLATE_ERROR', `Failed to list templates: ${error.message}`, {
+      source,
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Clear template cache (useful for development/testing)
+ */
+function clearCache() {
+  templateCache.clear();
+}
+
+module.exports = {
+  executeTemplate,
+  listTemplates,
+  clearCache,
+  // Export for testing
+  parseTemplateMetadata,
+  interpolateTemplate,
+  validateTemplateOutput,
+};

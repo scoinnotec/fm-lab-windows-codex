@@ -1,0 +1,46 @@
+{
+  "name": "fmide",
+  "version": "1.0.0",
+  "description": "fmIDE Thingamajig URI Navigation",
+  "enabled": true,
+  "routes_prefix": "/fmide",
+  "config": {
+    "fmp_protocol": "fmp",
+    "server_address": "$",
+    "script_name": "fmIDE"
+  },
+  "settings_schema": {
+    "fmp_protocol": {
+      "type": "select",
+      "label": "FMP-Protokoll",
+      "description": "fmp oder fmps (TLS)",
+      "options": ["fmp", "fmps"],
+      "default": "fmp"
+    },
+    "server_address": {
+      "type": "string",
+      "label": "Server-Adresse",
+      "description": "$ für aktuelle Datei, sonst Host/IP",
+      "default": "$"
+    },
+    "script_name": {
+      "type": "string",
+      "label": "Script-Name",
+      "description": "Name des Ziel-Scripts in der FileMaker-Datei",
+      "default": "fmIDE"
+    }
+  },
+  "ui": {
+    "frontend_module": "fmide",
+    "supported_object_types": [
+      "Script",
+      "Field",
+      "Layout",
+      "CustomFunction",
+      "ValueList",
+      "BaseTable",
+      "TableOccurrence",
+      "Relationship"
+    ]
+  }
+}
