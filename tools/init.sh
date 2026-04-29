@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+INIT_START=$SECONDS
 
 # Colors (terminal only)
 if [ -t 1 ]; then
@@ -17,6 +18,10 @@ warn()   { echo -e "${YELLOW}⚠${NC} $1"; }
 error()  { echo -e "${RED}✗${NC} $1"; }
 header() { echo -e "\n${BOLD}$1${NC}"; }
 
+# Summary tracking
+SUMMARY=()
+summary_add() { SUMMARY+=("$1"); }
+
 header "fm-lab init"
 echo "  Project root: $PROJECT_ROOT"
 
@@ -26,10 +31,27 @@ header "Checking prerequisites"
 
 ok=true
 
-# DuckDB
+# DuckDB — check PATH first, then common install locations
+DUCKDB_BIN=""
+DUCKDB_DIR=""
 if command -v duckdb &>/dev/null; then
-  DUCKDB_VER=$(duckdb --version 2>/dev/null | head -1 || echo "unknown")
-  info "DuckDB: $DUCKDB_VER"
+  DUCKDB_BIN=$(command -v duckdb)
+else
+  for candidate in \
+    "$HOME/.duckdb/cli/latest/duckdb" \
+    "/opt/homebrew/bin/duckdb" \
+    "/usr/local/bin/duckdb"; do
+    if [ -x "$candidate" ]; then
+      DUCKDB_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
+if [ -n "$DUCKDB_BIN" ]; then
+  DUCKDB_VER=$("$DUCKDB_BIN" --version 2>/dev/null | head -1 || echo "unknown")
+  DUCKDB_DIR=$(dirname "$DUCKDB_BIN")
+  info "DuckDB: $DUCKDB_VER ($DUCKDB_BIN)"
 else
   error "DuckDB CLI not found. Install it from https://duckdb.org/docs/installation/"
   ok=false
@@ -73,17 +95,59 @@ fi
 
 # ─── npm install ──────────────────────────────────────────────
 
-header "Installing dependencies"
+header "Installing dependencies (this may take 1–2 minutes)"
 cd "$PROJECT_ROOT"
-npm install --silent && info "Dependencies installed"
+T0=$SECONDS
+npm install --silent
+PKG_COUNT=$(find node_modules -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+info "Dependencies installed (~${PKG_COUNT} packages, $((SECONDS - T0))s)"
+summary_add "npm install       ~${PKG_COUNT} packages ($((SECONDS - T0))s)"
+
+# ─── DuckDB path → .claude/settings.json ─────────────────────
+# VS Code / Claude Code inherits a restricted PATH and may not find DuckDB.
+# We write the resolved binary directory into env.PATH so Claude Code can
+# always locate duckdb without trying to install it.
+
+SETTINGS_FILE="$PROJECT_ROOT/.claude/settings.json"
+if [ -n "$DUCKDB_DIR" ] && [ -f "$SETTINGS_FILE" ]; then
+  export DUCKDB_DIR PROJECT_ROOT
+  node - <<'NODEEOF'
+const fs = require('fs');
+const path = require('path');
+const settingsPath = process.env.PROJECT_ROOT + '/.claude/settings.json';
+const duckdbDir   = process.env.DUCKDB_DIR;
+const settings    = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+settings.env      = settings.env || {};
+const existingPath = settings.env.PATH || '';
+if (!existingPath.split(':').includes(duckdbDir)) {
+  // Prepend duckdb dir; keep the rest of the explicit PATH if already set,
+  // otherwise fall back to common system dirs so other tools still work.
+  const base = existingPath || '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin';
+  settings.env.PATH = duckdbDir + ':' + base;
+}
+fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+NODEEOF
+  info "DuckDB path written to .claude/settings.json"
+  summary_add "Claude Code PATH   $DUCKDB_DIR added to .claude/settings.json"
+fi
+
+# ─── Build shared package ─────────────────────────────────────
+
+header "Building shared package"
+T0=$SECONDS
+npm run build:shared --silent
+info "packages/shared built ($((SECONDS - T0))s)"
+summary_add "packages/shared   TypeScript → dist/ ($((SECONDS - T0))s)"
 
 # ─── Environment files ────────────────────────────────────────
 
 header "Environment files"
 
+ENV_CREATED=()
 if [ ! -f "$PROJECT_ROOT/rest-api/.env" ]; then
   cp "$PROJECT_ROOT/rest-api/.env.example" "$PROJECT_ROOT/rest-api/.env"
   info "Created rest-api/.env"
+  ENV_CREATED+=("rest-api/.env")
 else
   info "rest-api/.env already exists"
 fi
@@ -91,8 +155,15 @@ fi
 if [ ! -f "$PROJECT_ROOT/apps/web/.env" ]; then
   cp "$PROJECT_ROOT/apps/web/.env.example" "$PROJECT_ROOT/apps/web/.env"
   info "Created apps/web/.env"
+  ENV_CREATED+=("apps/web/.env")
 else
   info "apps/web/.env already exists"
+fi
+
+if [ ${#ENV_CREATED[@]} -gt 0 ]; then
+  summary_add "env files         created: ${ENV_CREATED[*]}"
+else
+  summary_add "env files         already present (skipped)"
 fi
 
 # ─── Logs directory ───────────────────────────────────────────
@@ -105,28 +176,44 @@ header "FileMaker XML export"
 
 XML_FILES=$(find "$PROJECT_ROOT/xml" -maxdepth 1 -name "*.xml" 2>/dev/null | wc -l | tr -d ' ')
 
+print_summary() {
+  local elapsed=$((SECONDS - INIT_START))
+  echo ""
+  echo -e "${BOLD}══════════════════════════════════════${NC}"
+  echo -e "${BOLD}fm-lab setup complete (${elapsed}s)${NC}"
+  echo ""
+  for line in "${SUMMARY[@]}"; do
+    echo -e "  ${GREEN}✓${NC} $line"
+  done
+  echo -e "${BOLD}══════════════════════════════════════${NC}"
+}
+
 if [ "$XML_FILES" -eq 0 ]; then
   warn "No XML files found in xml/."
+  summary_add "XML conversion    skipped (no files in xml/)"
+  print_summary
   echo ""
   echo "  Next step:"
-  echo "  1. Export your FileMaker solution via File > Save a Copy As > XML"
+  echo "  1. Export your FileMaker solution via 'Tools > Save a Copy As XML' + Option 'Include details for analysis tools'"
   echo "  2. Place the .xml file in the xml/ directory"
   echo "  3. Run:  bash tools/convert_fm_xml.sh --batch"
   echo "  4. Then: bash tools/start-servers.sh"
   echo ""
-  info "Setup complete — add your XML export to continue."
   exit 0
 fi
 
 info "Found $XML_FILES XML file(s) in xml/ — starting conversion"
+T0=$SECONDS
 bash "$SCRIPT_DIR/convert_fm_xml.sh" --batch
+summary_add "XML conversion    $XML_FILES file(s) → fm_catalog.duckdb ($((SECONDS - T0))s)"
 
 # ─── Start servers ────────────────────────────────────────────
 
 header "Starting servers"
 bash "$SCRIPT_DIR/start-servers.sh"
+summary_add "servers started   http://localhost:3003  |  http://localhost:5173"
 
+print_summary
 echo ""
-info "fm-lab is ready."
 echo "  Web Client:  http://localhost:5173"
 echo "  REST API:    http://localhost:3003"

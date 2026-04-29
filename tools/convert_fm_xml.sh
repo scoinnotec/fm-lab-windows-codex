@@ -35,6 +35,26 @@ PROJECT_ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-topleve
 SQL_TEMPLATE="$PROJECT_ROOT/sql/convert_xml.sql"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
+# Locate DuckDB binary — check PATH first, then common install locations
+DUCKDB_BIN=""
+if command -v duckdb &>/dev/null; then
+    DUCKDB_BIN=$(command -v duckdb)
+else
+    for _candidate in \
+        "$HOME/.duckdb/cli/latest/duckdb" \
+        "/opt/homebrew/bin/duckdb" \
+        "/usr/local/bin/duckdb"; do
+        if [ -x "$_candidate" ]; then
+            DUCKDB_BIN="$_candidate"
+            break
+        fi
+    done
+fi
+if [ -z "$DUCKDB_BIN" ]; then
+    echo "ERROR: DuckDB CLI not found. Install it from https://duckdb.org/docs/installation/"
+    exit 1
+fi
+
 # Detect processing mode and --test flag
 MODE="single"
 FILENAME=""
@@ -200,7 +220,7 @@ process_single_file() {
 
     # Capture both stdout and stderr to temp file for error logging
     local ERROR_LOG="$TEMP_DIR/error.log"
-    if FM_XML_DIR="$TEMP_DIR" duckdb "$DB_FILE" < "$TEMP_SQL" > "$ERROR_LOG" 2>&1; then
+    if FM_XML_DIR="$TEMP_DIR" "$DUCKDB_BIN" "$DB_FILE" < "$TEMP_SQL" > "$ERROR_LOG" 2>&1; then
         local RESULT=0
     else
         local RESULT=$?
@@ -362,7 +382,7 @@ EOF
     echo "========================================="
 
     CATALOG_TEMP_LOG=$(mktemp)
-    if duckdb "$DB_FILE" < "$PROJECT_ROOT/sql/create_universal_catalogs.sql" > "$CATALOG_TEMP_LOG" 2>&1; then
+    if "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_universal_catalogs.sql" > "$CATALOG_TEMP_LOG" 2>&1; then
         echo "✓ Universal catalogs created successfully"
     else
         echo "✗ WARNING: Universal catalogs failed"

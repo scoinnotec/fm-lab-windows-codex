@@ -316,6 +316,29 @@ Die Datenbank existiert in zwei getrennten Instanzen, um Schreib-/Lese-Konflikte
 **Konfliktvermeidung:** DuckDB hält einen Datei-Lock auf der geöffneten DB. Da der Server im `READ_ONLY`-Modus auf eine *andere* Datei zugreift, bleibt die Master-DB frei beschreibbar. `convert-xml` und Claude-Code-CLI können parallel zum laufenden Server arbeiten.
 
 
+### DuckDB Binary — Pfad-Erkennung
+
+Die VS Code-Umgebung erbt nicht automatisch den Shell-PATH des Benutzers. Wenn `which duckdb` fehlschlägt, prüfe diese bekannten Installationsorte **in dieser Reihenfolge**, bevor du versuchst, DuckDB zu installieren:
+
+```bash
+# 1. Prüfen ob im PATH
+which duckdb
+
+# 2. Bash-Installer (häufigste Ursache für PATH-Probleme)
+~/.duckdb/cli/latest/duckdb --version
+
+# 3. Homebrew (Apple Silicon)
+/opt/homebrew/bin/duckdb --version
+
+# 4. Homebrew (Intel Mac)
+/usr/local/bin/duckdb --version
+```
+
+Sobald der Pfad gefunden ist, verwende die vollständige Pfadangabe für alle weiteren DuckDB-Kommandos in dieser Sitzung, z.B. `~/.duckdb/cli/latest/duckdb db/fm_catalog.duckdb -c "..."`.
+
+**Wichtig:** Versuche nie, DuckDB selbst zu installieren. Wenn es an keinem der obigen Orte vorhanden ist, weise den Benutzer auf die Installationsanleitung hin.
+
+
 ### DuckDB-Kommandos für dieses Projekt
 
 ```bash
