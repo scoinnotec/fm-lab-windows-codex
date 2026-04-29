@@ -12,6 +12,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), version
 
 ---
 
+## [0.6.1] — 2026-04-29
+
+Service release: Bugfixes and optimizations.
+
+- Changed npm binding from old 'DuckDB native C++' to new 'DuckDB node-api' interface to prevent installation issues
+- Optimizations in init.sh script (verbose mode for npm, Claude settings)
+- Optimizations in convert_fm_xml.sh (printf Locale-Fix)
+- Changed path references relative to project root
+- More robust detection of path to DuckDB CLI and Node cli
+- Optimizations in gitignore to prevent conflicts when updating repo from origin
+
+---
+
 ## [0.6.0] — 2026-04-22
 
 fmIDE Plugin System: extensible architecture for the REST API and web frontend.

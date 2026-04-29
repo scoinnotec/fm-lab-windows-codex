@@ -136,7 +136,7 @@ Test data and tools for fm-lab developers are available for validation (will be 
 
 ## Status
 
-**v0.6.0** — First public release with core XML conversion, DuckDB catalog, REST API, and web client for exploration.
+**v0.6.1** — First public release with core XML conversion, DuckDB catalog, REST API, and web client for exploration.
 
 Some rough edges, but the core architecture is in place and ready for real-world use and feedback. Future updates will focus on stability, UI optimizations, and expanding the feature set.
 
