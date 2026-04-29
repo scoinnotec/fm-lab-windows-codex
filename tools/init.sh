@@ -103,12 +103,43 @@ PKG_COUNT=$(find node_modules -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -
 info "Dependencies installed (~${PKG_COUNT} packages, $((SECONDS - T0))s)"
 summary_add "npm install       ~${PKG_COUNT} packages ($((SECONDS - T0))s)"
 
+# ─── .claude/settings.json ────────────────────────────────────
+
+header "Claude Code settings"
+SETTINGS_FILE="$PROJECT_ROOT/.claude/settings.json"
+if [ ! -f "$SETTINGS_FILE" ]; then
+  mkdir -p "$PROJECT_ROOT/.claude"
+  cat > "$SETTINGS_FILE" <<'SETTINGSEOF'
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm:*)",
+      "Bash(duckdb:*)",
+      "Bash(bash .claude/skills/*:*)"
+    ]
+  },
+  "extraKnownMarketplaces": {
+    "duckdb-skills": {
+      "source": { "source": "github", "repo": "duckdb/duckdb-skills" }
+    }
+  },
+  "enabledPlugins": {
+    "duckdb-skills@duckdb-skills": true
+  }
+}
+SETTINGSEOF
+  info "Created .claude/settings.json"
+  summary_add "Claude settings    .claude/settings.json created"
+else
+  info ".claude/settings.json already exists"
+  summary_add "Claude settings    already present (skipped)"
+fi
+
 # ─── DuckDB path → .claude/settings.json ─────────────────────
 # VS Code / Claude Code inherits a restricted PATH and may not find DuckDB.
 # We write the resolved binary directory into env.PATH so Claude Code can
 # always locate duckdb without trying to install it.
 
-SETTINGS_FILE="$PROJECT_ROOT/.claude/settings.json"
 if [ -n "$DUCKDB_DIR" ] && [ -f "$SETTINGS_FILE" ]; then
   export DUCKDB_DIR PROJECT_ROOT
   node - <<'NODEEOF'

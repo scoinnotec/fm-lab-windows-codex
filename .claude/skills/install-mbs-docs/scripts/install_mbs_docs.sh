@@ -254,7 +254,7 @@ parse_components() {
 
     # Get the directory where this script is located
     # We need to handle the path relative to PROJECT_ROOT since BASH_SOURCE may be relative
-    SKILL_SCRIPTS_DIR="$PROJECT_ROOT/.claude/skills/install-docs/scripts"
+    SKILL_SCRIPTS_DIR="$PROJECT_ROOT/.claude/skills/install-mbs-docs/scripts"
     PARSER_SCRIPT="$SKILL_SCRIPTS_DIR/parse_mbs_components.py"
 
     # Verify parser script exists

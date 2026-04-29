@@ -29,8 +29,8 @@ const environment = {
 
   // Template Configuration
   templates: {
-    dir: process.env.TEMPLATE_DIR || './templates/sql',
-    customDir: process.env.TEMPLATE_CUSTOM_DIR || './templates/sql-custom',
+    dir: process.env.TEMPLATE_DIR || path.resolve(__dirname, '../../templates/sql'),
+    customDir: process.env.TEMPLATE_CUSTOM_DIR || path.resolve(__dirname, '../../templates/sql-custom'),
     cacheEnabled: process.env.TEMPLATE_CACHE_ENABLED !== 'false',
     cacheTTL: parseInt(process.env.TEMPLATE_CACHE_TTL) || 3600000, // 1 hour
   },

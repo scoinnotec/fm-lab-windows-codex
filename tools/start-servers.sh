@@ -35,6 +35,49 @@ wait_for_port() {
   return 1
 }
 
+# ─── Locate node/npm binaries ────────────────────────────────
+# nohup inherits a restricted PATH; resolve the full binary path so the
+# server starts reliably regardless of how Node was installed.
+NODE_BIN=""
+NPM_BIN=""
+
+if command -v node &>/dev/null; then
+  NODE_BIN=$(command -v node)
+  NPM_BIN=$(command -v npm)
+else
+  # Homebrew (Apple Silicon / Intel)
+  for _candidate in "/opt/homebrew/bin/node" "/usr/local/bin/node"; do
+    if [ -x "$_candidate" ]; then
+      NODE_BIN="$_candidate"
+      NPM_BIN="$(dirname "$_candidate")/npm"
+      break
+    fi
+  done
+
+  # nvm — resolve via default alias, fall back to most recent installed version
+  if [ -z "$NODE_BIN" ]; then
+    _nvm_dir="${NVM_DIR:-$HOME/.nvm}"
+    _nvm_default="$_nvm_dir/alias/default"
+    if [ -f "$_nvm_default" ]; then
+      _ver=$(cat "$_nvm_default" | tr -d '[:space:]')
+      _candidate="$_nvm_dir/versions/node/$_ver/bin/node"
+      if [ ! -x "$_candidate" ]; then
+        # alias may point to another alias (e.g. "lts/*") — take latest installed
+        _candidate=$(ls -t "$_nvm_dir/versions/node/"*/bin/node 2>/dev/null | head -1)
+      fi
+      if [ -x "$_candidate" ]; then
+        NODE_BIN="$_candidate"
+        NPM_BIN="$(dirname "$_candidate")/npm"
+      fi
+    fi
+  fi
+fi
+
+if [ -z "$NODE_BIN" ]; then
+  error "Node.js not found. Install it from https://nodejs.org/"
+  exit 1
+fi
+
 api_started=false
 frontend_started=false
 
@@ -55,7 +98,7 @@ if [ -n "$API_PID" ]; then
 else
   # Server starten
   cd "$PROJECT_ROOT/rest-api"
-  nohup node src/index.js > "$PROJECT_ROOT/logs/rest-api.log" 2>&1 &
+  nohup "$NODE_BIN" src/index.js > "$PROJECT_ROOT/logs/rest-api.log" 2>&1 &
   API_PID=$!
   cd "$PROJECT_ROOT"
 
@@ -94,7 +137,7 @@ if [ -n "$FE_PID" ]; then
 else
   # Vite starten
   cd "$PROJECT_ROOT/apps/web"
-  nohup npm run dev > "$PROJECT_ROOT/logs/frontend.log" 2>&1 &
+  nohup "$NPM_BIN" run dev > "$PROJECT_ROOT/logs/frontend.log" 2>&1 &
   FE_PID=$!
   cd "$PROJECT_ROOT"
 

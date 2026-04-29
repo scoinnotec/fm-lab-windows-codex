@@ -362,12 +362,10 @@ EOF
         fi
         SPACES=$(printf '%*s' $PADDING '')
 
-        printf "%s | %s%s | %8.3fs | %s\n" \
-            "$(date '+%Y-%m-%d %H:%M:%S')" \
-            "$BASENAME" \
-            "$SPACES" \
-            "$FILE_DURATION" \
-            "$FILE_STATUS" >> "$LOG_FILE"
+        awk -v ts="$(date '+%Y-%m-%d %H:%M:%S')" \
+            -v bn="$BASENAME" -v sp="$SPACES" \
+            -v dur="$FILE_DURATION" -v st="$FILE_STATUS" \
+            'BEGIN { printf "%s | %s%s | %8.3fs | %s\n", ts, bn, sp, dur+0, st }' >> "$LOG_FILE"
 
         echo ""
     done
@@ -437,10 +435,8 @@ EOF
     echo "Successful: $SUCCESS_COUNT"
     echo "Skipped: $SKIPPED_COUNT"
     echo "Failed: ${#FAILED_FILES[@]}"
-    printf "Total duration: %dm %.3fs (%.3f seconds)\n" \
-        "$BATCH_MINUTES" \
-        "$BATCH_SECONDS" \
-        "$BATCH_DURATION"
+    awk -v m="$BATCH_MINUTES" -v s="$BATCH_SECONDS" -v d="$BATCH_DURATION" \
+        'BEGIN { printf "Total duration: %dm %.3fs (%.3f seconds)\n", m, s+0, d+0 }'
 
     # Write summary to log file
     cat >> "$LOG_FILE" << EOF

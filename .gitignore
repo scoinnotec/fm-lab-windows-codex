@@ -20,6 +20,10 @@ logs/*
 db/*
 !db/.gitkeep
 
+# Daten-Verzeichnis
+data/*
+!data/.gitkeep
+
 # XML Dateien
 xml/*
 !xml/.gitkeep
@@ -48,5 +52,10 @@ apps/*/.env.local
 apps/*/.env.production
 
 # Claude lokale Settings
+.claude/settings.json
 .claude/settings.local.json
 .claude/worktrees/
+
+# Plugin-Settings (lokal, wird beim ersten Start automatisch erzeugt)
+.fmlab/plugins.json
+.fmlab/plugins/
