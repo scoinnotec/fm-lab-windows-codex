@@ -6,11 +6,11 @@ A **DuckDB**-based tool for analyzing **FileMaker SaXML exports**. Converts the 
 
 ## Prolog
 
-FileMaker development is facing a new paradigm: code must be readable and understandable by both humans and AI agents. While every other major programming environment has a well-established ecosystem for code analysis, documentation, and refactoring, FileMaker's proprietary format makes it hard to participate in that ecosystem — there is no native API to query a solution's structure programmatically. Numerous tools try to bridge this gap, but often lack depth or scalability. Some serve human developer workflows well; others target AI integration but rely on repetitive, fragile setups. Most are closed source, which limits their adaptability in a rapidly evolving landscape.
+FileMaker development is facing a new paradigm: **code must be readable and understandable by both humans and AI agents**. While every other major programming environment has a well-established ecosystem for code analysis, documentation, and refactoring, FileMaker's proprietary format makes it hard to participate in that ecosystem — there is no native API to query a solution's structure programmatically. Numerous tools try to bridge this gap, but often lack depth or scalability. Some serve human developer workflows well; others target AI integration but rely on repetitive, fragile setups. Most are closed source, which limits their adaptability in a rapidly evolving landscape.
 
-This project takes a different approach. It converts the full structure of a FileMaker solution — exported as SaXML — into a queryable DuckDB database. All object types (scripts, fields, layouts, relationships, value lists, and more) land in dedicated tables, with a universal catalog that links objects and their dependencies across the entire solution. DuckDB's in-process engine makes this catalog fast enough for both interactive queries and AI-driven analysis at scale, without any server setup. A REST API and a web client provide additional access layers for GUI and integration workflows.
+This project takes a different approach. It converts the full structure of a FileMaker solution — exported as SaXML — into a queryable DuckDB database. All object types (scripts, fields, layouts, relationships, value lists, and more) land in dedicated tables, with **a universal catalog that links objects and their dependencies across the entire solution**. DuckDB's in-process engine makes this catalog fast enough for both interactive queries and **AI-driven analysis at scale**, without any database server setup. A REST API and a web client provide additional access layers for GUI and integration workflows.
 
-The first release focuses on this core: reliable XML conversion, a comprehensive object catalog, and a modular architecture that is open source and easy to extend. Future releases will build on this foundation — the long-term goal is to become a solid developer tooling platform for the FileMaker space.
+The first release focuses on this core: reliable XML conversion, a comprehensive object catalog, and a modular architecture that is open source and **easy to extend**. Future releases will build on this foundation — the long-term goal is to become a solid developer tooling platform for the FileMaker space.
 
 
 ## Features
@@ -69,6 +69,14 @@ FileMaker XML exports are supported on all platforms where FileMaker Pro is avai
 - [Claude Code](https://docs.claude.com/en/docs/claude-code)
 - [duckdb-skills](https://github.com/duckdb/duckdb-skills) plugin for Claude Code (recommended — DuckDB documentation lookup and query assistance)
 
+## Preparing the XML Export
+
+Export your FileMaker solution as XML via `Tools > Save a Copy As XML` (SaXML) in FileMaker Pro. This export contains the full structure of your solution, including scripts, fields, layouts, relationships, value lists, and more — all of which will be parsed and stored in the DuckDB catalog for analysis by FM-Lab. Repeat this for every file of your solution (e.g. if you have multiple files in a multi-file solution). The XML export is the core input for FM-Lab, so it's important to ensure that it is up to date with your current solution structure.
+
+You may want to automate this export process with a script using [Script step: Save a Copy as XML](https://help.claris.com/en/pro-help/content/save-a-copy-as-xml.html) for every file of your solution.
+
+**Important:** Make sure to activate the option "Include details for analysis tools" when saving the XML export, this includes valuable metadata for analysis.
+
 ## Setup
 
 ```bash
@@ -77,13 +85,13 @@ git clone https://github.com/marcel-more/fm-lab.git
 cd fm-lab
 ```
 
-Then place your FileMaker XML export (`File > Save a Copy As > XML`) in the `xml/` directory and run:
+Then place all files of your FileMaker XML export in the `xml/` directory and run:
 
 ```bash
 bash tools/init.sh
 ```
 
-`init.sh` checks prerequisites, installs dependencies, sets up environment files, converts the XML export, and starts the servers — all in one step. It prints clear instructions if anything is missing.
+`init.sh` checks prerequisites, installs dependencies, sets up environment files, converts the XML export, and starts the local Node.js-servers — all in one step. It prints clear instructions if anything is missing.
 
 ## Day-to-day
 
@@ -136,7 +144,38 @@ Some rough edges, but the core architecture is in place and ready for real-world
 
 Many more features are under current development... stay tuned for updates! 😎
 
+## Roadmap
 
-## License
+- Windows support
+- Snapshots (for tracking changes over time)
+- Multi-Solution support (for analyzing multiple files from different solutions together)
+- Deep integration with other tools for optimal support of different developer workflows (VS Code, Raycast, Obsidian, etc.)
+- Support for other AI agents besides Claude Code (Agents.md, Skills)
+- AI-driven code generation and refactoring tools based on the object catalog and integrated documentation
+
+## Vision
+
+*One interface to rule them all — in your personal style of workflow:*
+
+- Your FileMaker Solution
+- Your Favorite Tools
+- Your Agent
+- Your Project Docs
+- All FileMaker-related docs and knowledge
+- All possible extensions
+- All in one Interface
+
+
+## Fine Print
+
+### AI-assisted development
+
+This project was developed with significant support from AI-assisted development workflows, including Claude Code.
+
+Spec-driven development with AI agents is used as a best practice together with human oversight and decision-making to ensure that the project remains aligned with its goals and maintains a clean architecture.
+
+All changes were reviewed, selected, and integrated by the project maintainer.
+
+### License
 
 MIT — see [`LICENSE`](LICENSE).
