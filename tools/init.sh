@@ -6,6 +6,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INIT_START=$SECONDS
 
+VERBOSE=false
+for arg in "$@"; do
+  case "$arg" in
+    -v|--verbose) VERBOSE=true ;;
+  esac
+done
+
 # Colors (terminal only)
 if [ -t 1 ]; then
   GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BOLD='\033[1m'; NC='\033[0m'
@@ -24,6 +31,7 @@ summary_add() { SUMMARY+=("$1"); }
 
 header "fm-lab init"
 echo "  Project root: $PROJECT_ROOT"
+[ "$VERBOSE" = true ] && echo "  Mode: verbose (--verbose)"
 
 # ─── Prerequisites ────────────────────────────────────────────
 
@@ -98,7 +106,11 @@ fi
 header "Installing dependencies (this may take 1–2 minutes)"
 cd "$PROJECT_ROOT"
 T0=$SECONDS
-npm install --silent
+if [ "$VERBOSE" = true ]; then
+  npm install
+else
+  npm install --silent
+fi
 PKG_COUNT=$(find node_modules -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
 info "Dependencies installed (~${PKG_COUNT} packages, $((SECONDS - T0))s)"
 summary_add "npm install       ~${PKG_COUNT} packages ($((SECONDS - T0))s)"
@@ -166,7 +178,11 @@ fi
 
 header "Building shared package"
 T0=$SECONDS
-npm run build:shared --silent
+if [ "$VERBOSE" = true ]; then
+  npm run build:shared
+else
+  npm run build:shared --silent
+fi
 info "packages/shared built ($((SECONDS - T0))s)"
 summary_add "packages/shared   TypeScript → dist/ ($((SECONDS - T0))s)"
 
