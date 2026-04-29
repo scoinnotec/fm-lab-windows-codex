@@ -78,6 +78,11 @@ if [ -z "$NODE_BIN" ]; then
   exit 1
 fi
 
+# Ensure node's bin directory is in PATH so nohup child processes
+# (e.g. vite with #!/usr/bin/env node) can find node regardless of
+# how it was installed (nvm, Homebrew, system).
+export PATH="$(dirname "$NODE_BIN"):$PATH"
+
 api_started=false
 frontend_started=false
 

@@ -68,8 +68,11 @@ async function executeQuery(sql, params = []) {
 
   try {
     const stmt = await connection.prepare(sql);
-    const result = params.length > 0 ? await stmt.run(...params) : await stmt.run();
-    const rows = await result.getRowObjects();
+    if (params.length > 0) {
+      stmt.bind(params);
+    }
+    const result = await stmt.run();
+    const rows = await result.getRowObjectsJS();
 
     return {
       rows,
