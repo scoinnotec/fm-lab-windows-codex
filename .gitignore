@@ -27,6 +27,8 @@ xml/*
 # Docs Verzeichnis (per Install-Skills nachgeladen)
 docs/*
 !docs/.gitkeep
+!docs/agents/
+!docs/agents/**
 
 # Node.js Dependencies
 node_modules/

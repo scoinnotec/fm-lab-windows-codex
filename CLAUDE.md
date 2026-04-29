@@ -15,7 +15,7 @@ Um den Zugriff auf die Teilbereiche des Objektkatalogs zu optimieren, konvertier
 
 **Unterstützte XML-Versionen:** SaXML v2.1.0.0+ (FileMaker 19+) mit Root-Element `<FMSaveAsXML>`. Das ältere Format SaXML v2.0.0.0 (FileMaker 18.x) mit Root-Element `<FMDynamicTemplate>` wird nicht unterstützt und automatisch mit einer Warnung übersprungen.
 
-Eine Beschreibung der XML Struktur der FileMaker Datei findest Du im Dokument `xml/xml-schema.md`.
+Eine Beschreibung der XML Struktur der FileMaker Datei findest Du im Dokument `docs/agents/xml-schema.md`.
 Dies ist der Ausgangspunkt unserer Konvertierung. Anschließend liegen die für unsere Analyse relevanten Daten aus dem XML in den DuckDB Tabellen vor. Wir verwenden bei allen Analyseschritten ausschließlich die Daten aus der DuckDB Datenbank.
 
 
