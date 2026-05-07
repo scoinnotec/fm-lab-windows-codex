@@ -97,6 +97,7 @@ function getContentType(format) {
     content: 'text/plain; charset=utf-8',
     mermaid: 'text/html; charset=utf-8',      // HTML mit Mermaid.js
     'mermaid-raw': 'text/plain; charset=utf-8',  // Nur Mermaid-Code
+    tokens: 'application/json',                  // Structured token payload
   };
 
   return contentTypes[format] || 'application/json';
@@ -112,8 +113,9 @@ function getContentType(format) {
  * @param {string} debugQuery - Optional debug query
  */
 function sendFormatted(res, data, format = 'json', meta = null, debugQuery = null) {
-  // For JSON format, use standard response structure
-  if (format === 'json') {
+  // JSON-shaped responses use the standard {success, data, meta} envelope.
+  // 'tokens' is structured JSON like 'json', not a text-based format.
+  if (format === 'json' || format === 'tokens') {
     const response = buildSuccess(data, meta, debugQuery);
     res.json(response);
     return;

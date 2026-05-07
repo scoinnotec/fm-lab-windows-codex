@@ -56,6 +56,9 @@ export const HierarchyTree: React.FC<HierarchyTreeProps> = ({ references }) => {
 
   const hasParents = references.parent.length > 0;
   const hasChildren = references.child.length > 0;
+  const hasStructParents = references.structuralParent.length > 0;
+  const hasStructChildren = references.structuralChild.length > 0;
+  const hasAny = hasParents || hasChildren || hasStructParents || hasStructChildren;
 
   return (
     <nav className="hierarchy-tree" aria-label="Objekt-Hierarchie">
@@ -79,8 +82,28 @@ export const HierarchyTree: React.FC<HierarchyTreeProps> = ({ references }) => {
         </section>
       )}
 
+      {/* Structural Parent References (z.B. enthaltende Folder, Tab-Control, Layout) */}
+      {hasStructParents && (
+        <section className="hierarchy-section">
+          <h2>Strukturell enthalten in ({references.structuralParent.length})</h2>
+          <ul className="reference-list">
+            {references.structuralParent.map(renderReferenceItem)}
+          </ul>
+        </section>
+      )}
+
+      {/* Structural Child References (z.B. enthaltene Items, Sub-Folder, Panels) */}
+      {hasStructChildren && (
+        <section className="hierarchy-section">
+          <h2>Strukturell enthält ({references.structuralChild.length})</h2>
+          <ul className="reference-list">
+            {references.structuralChild.map(renderReferenceItem)}
+          </ul>
+        </section>
+      )}
+
       {/* No references */}
-      {!hasParents && !hasChildren && (
+      {!hasAny && (
         <div className="no-references">
           Keine Referenzen gefunden
         </div>

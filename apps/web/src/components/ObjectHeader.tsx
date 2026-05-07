@@ -7,6 +7,20 @@ interface ObjectHeaderProps {
 }
 
 /**
+ * Folder ist im Datenmodell ein einziger Object_Type; im UI zeigen wir den Pseudo-Typ
+ * (ScriptFolder/LayoutFolder/CustomFunctionFolder), abgeleitet aus Source_Table.
+ */
+function displayObjectType(objectType: string, sourceTable?: string | null): string {
+  if (objectType !== 'Folder') return objectType;
+  switch (sourceTable) {
+    case 'ScriptCatalog':          return 'ScriptFolder';
+    case 'Layouts':                return 'LayoutFolder';
+    case 'CustomFunctionsCatalog': return 'CustomFunctionFolder';
+    default:                       return 'Folder';
+  }
+}
+
+/**
  * Object Header Component
  * Displays object name, type badge, file name, and UUID with copy button.
  * Plugins contribute action buttons via the `objectHeaderActions` slot.
@@ -42,7 +56,7 @@ export const ObjectHeader: React.FC<ObjectHeaderProps> = ({ object }) => {
         />
       </div>
       <div className="detail-meta">
-        <span className="object-type">{object.Object_Type}</span>
+        <span className="object-type">{displayObjectType(object.Object_Type, object.Source_Table)}</span>
         {object.Source_Table && (
           <span className="detail-source">
             Quelle: {object.Source_Table}

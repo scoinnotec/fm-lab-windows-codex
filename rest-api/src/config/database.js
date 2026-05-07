@@ -96,9 +96,9 @@ async function close() {
 
   try {
     if (connection) {
-      await connection.close();
+      connection.disconnectSync();
     }
-    await instance.close();
+    instance.closeSync();
     console.log('Database connection closed');
   } catch (err) {
     console.error('Error closing database:', err);

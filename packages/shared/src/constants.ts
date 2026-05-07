@@ -32,6 +32,8 @@ export const OBJECT_TYPES = [
   'ExternalDataSource',
   'BaseDirectory',
   'Variable',
+  'ScriptFolder',
+  'LayoutFolder',
 ] as const;
 
 export type ObjectType = typeof OBJECT_TYPES[number];
@@ -61,6 +63,8 @@ export const OBJECT_TYPE_MAP: Record<string, ObjectType> = {
   'externaldatasource': 'ExternalDataSource',
   'basedirectory': 'BaseDirectory',
   'variable': 'Variable',
+  'scriptfolder': 'ScriptFolder',
+  'layoutfolder': 'LayoutFolder',
 };
 
 /**

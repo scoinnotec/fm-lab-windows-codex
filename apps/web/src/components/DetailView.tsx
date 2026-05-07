@@ -12,6 +12,16 @@ import type { BreadcrumbItem, DetailViewTab } from '../types';
 import { DETAIL_TABS } from '../types';
 import '../DetailView.css';
 
+function displayObjectType(objectType: string, sourceTable?: string | null): string {
+  if (objectType !== 'Folder') return objectType;
+  switch (sourceTable) {
+    case 'ScriptCatalog':          return 'ScriptFolder';
+    case 'Layouts':                return 'LayoutFolder';
+    case 'CustomFunctionsCatalog': return 'CustomFunctionFolder';
+    default:                       return 'Folder';
+  }
+}
+
 /**
  * Detail View Component
  * Displays full object details with sub-navigation tabs:
@@ -64,9 +74,10 @@ export const DetailView: React.FC = () => {
     );
   }
 
+  const breadcrumbType = displayObjectType(object.Object_Type, object.Source_Table);
   const breadcrumbItems: BreadcrumbItem[] = [
     { label: 'Suche', path: '/' },
-    { label: object.Object_Type, path: `/?type=${object.Object_Type}` },
+    { label: breadcrumbType, path: `/?type=${breadcrumbType}` },
     { label: object.Object_Name || '(ohne Namen)', path: null },
   ];
 

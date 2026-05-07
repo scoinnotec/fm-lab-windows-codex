@@ -708,6 +708,28 @@ WHERE m.Has_DDR_INFO = 'False'
 
 
 -- ========================================
+-- A.7e: Scope_Anchor in VariableUsages materialisieren
+-- ========================================
+-- Bindet die Variablen-Identität an den FileMaker-Scope-Träger:
+--   superglobal → '__global'           (prozessweit)
+--   global      → File_Name            (datei-lokal)
+--   local       → Script_UUID          (script-lokal, sofern vorhanden)
+--                 '__file::'||File_Name (Fallback bei Calc/CF/Layout-Kontext ohne Script)
+--   let_local   → Context_UUID || '__file::'||File_Name
+ALTER TABLE VariableUsages ADD COLUMN IF NOT EXISTS Scope_Anchor VARCHAR;
+
+UPDATE VariableUsages
+SET Scope_Anchor = CASE
+    WHEN Variable_Scope = 'superglobal' THEN '__global'
+    WHEN Variable_Scope = 'global'      THEN File_Name
+    WHEN Variable_Scope = 'local' AND Script_UUID IS NOT NULL THEN Script_UUID
+    WHEN Variable_Scope = 'local' AND Script_UUID IS NULL     THEN '__file::' || File_Name
+    WHEN Variable_Scope = 'let_local'   THEN COALESCE(Context_UUID, '__file::' || File_Name)
+    ELSE File_Name
+END;
+
+
+-- ========================================
 -- A.8: VariablesCatalog (Aggregation)
 -- ========================================
 
@@ -717,6 +739,7 @@ CREATE TABLE VariablesCatalog AS
 SELECT
     Variable_Name,
     Variable_Scope,
+    Scope_Anchor,
     CASE Variable_Scope
         WHEN 'local' THEN Variable_Name
         WHEN 'global' THEN Variable_Name
@@ -724,6 +747,11 @@ SELECT
         ELSE Variable_Name
     END as Display_Name,
     regexp_replace(Variable_Name, '^\$+', '') as Normalized_Name,
+    -- Script_UUID nur bei script-lokalen Variablen (Anker = Script_UUID, kein '__file::'-Fallback)
+    CASE WHEN Variable_Scope = 'local' AND Scope_Anchor NOT LIKE '__file::%'
+         THEN Scope_Anchor
+         ELSE NULL
+    END as Script_UUID,
     COUNT(*) FILTER (WHERE Usage_Type = 'set') as Set_Count,
     COUNT(*) FILTER (WHERE Usage_Type = 'read') as Read_Count,
     COUNT(DISTINCT Script_Name) as Script_Count,
@@ -738,17 +766,30 @@ SELECT
          WHEN bool_or(Source = 'script_trigger_param') THEN 'trigger'
          ELSE 'regex'
     END as Source_Reliability,
-    mode(File_Name) as File_Name
+    -- File_Name = Datei, in der diese Scope-Instanz wohnt:
+    --   global: Anker = File_Name (datei-lokal)
+    --   local mit Script-Anker: einzige Datei dieses Scripts (durch mode garantiert)
+    --   local ohne Script (Fallback '__file::X'): X
+    --   superglobal: häufigste Datei (informativ)
+    CASE
+        WHEN Variable_Scope = 'global' THEN Scope_Anchor
+        WHEN Variable_Scope = 'local' AND Scope_Anchor LIKE '__file::%'
+            THEN substr(Scope_Anchor, 9)
+        ELSE mode(File_Name)
+    END as File_Name
 FROM VariableUsages
-GROUP BY Variable_Name, Variable_Scope;
+GROUP BY Variable_Name, Variable_Scope, Scope_Anchor;
 
 -- Indizes für VariableUsages/VariablesCatalog
 CREATE INDEX IF NOT EXISTS idx_varusages_name ON VariableUsages(Variable_Name);
 CREATE INDEX IF NOT EXISTS idx_varusages_scope ON VariableUsages(Variable_Scope);
 CREATE INDEX IF NOT EXISTS idx_varusages_context ON VariableUsages(Context_UUID);
 CREATE INDEX IF NOT EXISTS idx_varusages_file ON VariableUsages(File_Name);
+CREATE INDEX IF NOT EXISTS idx_varusages_anchor ON VariableUsages(Scope_Anchor);
 CREATE INDEX IF NOT EXISTS idx_varcatalog_scope ON VariablesCatalog(Variable_Scope);
 CREATE INDEX IF NOT EXISTS idx_varcatalog_file ON VariablesCatalog(File_Name);
+CREATE INDEX IF NOT EXISTS idx_varcatalog_anchor ON VariablesCatalog(Scope_Anchor);
+CREATE INDEX IF NOT EXISTS idx_varcatalog_name ON VariablesCatalog(Variable_Name);
 
 -- Variablen-Parser Statistik
 SELECT '=== Variablen-Parser Ergebnis ===' as Info;
@@ -763,6 +804,102 @@ UNION ALL SELECT 'Davon global', COUNT(*)::VARCHAR FROM VariablesCatalog WHERE V
 UNION ALL SELECT 'Davon lokal', COUNT(*)::VARCHAR FROM VariablesCatalog WHERE Variable_Scope = 'local'
 UNION ALL SELECT 'Davon superglobal', COUNT(*)::VARCHAR FROM VariablesCatalog WHERE Variable_Scope = 'superglobal'
 UNION ALL SELECT 'Davon let_local', COUNT(*)::VARCHAR FROM VariablesCatalog WHERE Variable_Scope = 'let_local';
+
+
+-- ############################################################
+-- Phase A.5: FolderHierarchy
+-- ############################################################
+-- Vereinheitlichte Hierarchie für Folder-Strukturen aller Objekttypen.
+-- FileMaker modelliert Folder als sequenzielle Marker im XML:
+--   isFolder='True'   → Ordner-Beginn (+1 Tiefe)
+--   isFolder='Marker' → Ordner-Ende  (−1 Tiefe)
+--   isSeparatorItem='True' → Trennlinie (kein Folder, nur UI)
+--
+-- Subtypen werden über Source_Table unterschieden:
+--   ScriptCatalog → Script-Folder
+--   Layouts       → Layout-Folder
+--   FM 2026+: CustomFunctionsCatalog → CustomFunction-Folder (UNION-Zweig ergänzen)
+-- ############################################################
+
+CREATE OR REPLACE VIEW FolderHierarchy AS
+WITH all_items AS (
+    -- Scripts: Sequence_ID = XML-Reihenfolge (NICHT Script_ID, das ist Anlege-Reihenfolge!)
+    SELECT
+        Script_UUID AS Source_UUID,
+        Script_Name AS Item_Name,
+        File_Name,
+        Sequence_ID,
+        Folder_Type,
+        Is_Separator,
+        'ScriptCatalog' AS Source_Table
+    FROM ScriptCatalog
+
+    UNION ALL
+
+    -- Layouts: Sequence_ID = XML-Reihenfolge (analog zu Scripts)
+    SELECT
+        L_UUID AS Source_UUID,
+        L_Name AS Item_Name,
+        File_Name,
+        Sequence_ID,
+        Folder_Type,
+        Is_Separator,
+        'Layouts' AS Source_Table
+    FROM Layouts
+
+    -- FM 2026+: CustomFunctionsCatalog hier als dritter UNION-Zweig ergänzen,
+    -- sobald isFolder/isSeparatorItem dort verfügbar sind.
+),
+numbered AS (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY File_Name, Source_Table
+                           ORDER BY Sequence_ID) - 1 AS seq
+    FROM all_items
+),
+with_levels AS (
+    SELECT *,
+        -- Stack-Logik: kumulative Summe bis VOR der aktuellen Zeile.
+        -- 'True' öffnet einen Folder (+1), 'Marker' schließt ihn (−1).
+        GREATEST(0, COALESCE(
+            SUM(CASE WHEN Folder_Type = 'True'   THEN 1
+                     WHEN Folder_Type = 'Marker' THEN -1
+                     ELSE 0 END)
+            OVER (PARTITION BY File_Name, Source_Table ORDER BY seq
+                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+        , 0)) AS nesting_level,
+        CASE
+            WHEN Is_Separator           THEN 'Separator'
+            WHEN Folder_Type = 'True'   THEN 'Folder'
+            WHEN Folder_Type = 'Marker' THEN 'FolderEnd'
+            ELSE                             'Item'
+        END AS subtype
+    FROM numbered
+)
+SELECT
+    t.Source_UUID,
+    t.Item_Name,
+    t.File_Name,
+    t.Source_Table,
+    t.Sequence_ID,
+    t.seq,
+    t.Folder_Type,
+    t.Is_Separator,
+    t.nesting_level,
+    t.subtype,
+    -- Parent_Folder_UUID: letzter offener Folder mit nesting_level = current - 1
+    -- und seq < current. Korrelierte Subquery — DuckDB optimiert das.
+    (
+        SELECT p.Source_UUID
+        FROM with_levels p
+        WHERE p.File_Name    = t.File_Name
+          AND p.Source_Table = t.Source_Table
+          AND p.subtype      = 'Folder'
+          AND p.nesting_level = t.nesting_level - 1
+          AND p.seq          < t.seq
+        ORDER BY p.seq DESC
+        LIMIT 1
+    ) AS Parent_Folder_UUID
+FROM with_levels t;
 
 
 -- ############################################################
@@ -876,7 +1013,8 @@ FROM StepsForScripts
 
 UNION ALL
 
--- 9. Layouts (Layouts)
+-- 9. Layouts (Layouts - ohne Folders und Separators)
+-- Folder/Marker-Records werden als 'Folder' separat aufgenommen (siehe Block 24)
 SELECT
     L_UUID as Object_UUID,
     'Layout' as Object_Type,
@@ -885,6 +1023,8 @@ SELECT
     'Layouts' as Source_Table,
     L_ID as Object_ID
 FROM Layouts
+WHERE (Folder_Type IS NULL OR Folder_Type = 'False')
+  AND NOT COALESCE(Is_Separator, FALSE)
 
 UNION ALL
 
@@ -902,10 +1042,16 @@ FROM LayoutParts
 UNION ALL
 
 -- 11. LayoutObjects (Layout Objects)
+-- Display-Name-Default für unnamed LayoutObjects: 'Object_Type @ (Top,Left)',
+-- z.B. 'Edit Box @ (123,45)'. Bounds machen das Element auf dem Layout
+-- lokalisierbar; der vorherige Default 'Type #ID' war abstrakt.
 SELECT
     Object_UUID as Object_UUID,
     'LayoutObject' as Object_Type,
-    COALESCE(Object_Name, Object_Type || ' #' || Object_ID) as Object_Name,
+    COALESCE(
+        NULLIF(Object_Name, ''),
+        Object_Type || ' @ (' || COALESCE(Bounds_Top, 0) || ',' || COALESCE(Bounds_Left, 0) || ')'
+    ) as Object_Name,
     File_Name,
     'LayoutObjects' as Source_Table,
     Object_ID as Object_ID
@@ -937,30 +1083,12 @@ FROM PrivilegeSetsCatalog
 
 UNION ALL
 
--- 14. DDR_ScriptSteps (DDR Script Steps - optional)
-SELECT
-    Step_UUID as Object_UUID,
-    'DDR_ScriptStep' as Object_Type,
-    Step_Text as Object_Name,
-    File_Name,
-    'DDR_ScriptSteps' as Source_Table,
-    NULL as Object_ID
-FROM DDR_ScriptSteps
-
-UNION ALL
-
--- 15. DDR_Calculations (DDR Calculations - optional)
-SELECT
-    Calc_UUID as Object_UUID,
-    'DDR_Calculation' as Object_Type,
-    'Calculation ' || Calc_Hash as Object_Name,
-    File_Name,
-    'DDR_Calculations' as Source_Table,
-    NULL as Object_ID
-FROM DDR_Calculations
-WHERE Chunk_Index = 1  -- Nur erste Chunk, um Duplikate zu vermeiden
-
-UNION ALL
+-- 14./15. DDR_ScriptSteps und DDR_Calculations:
+-- Bewusst NICHT als ObjectCatalog-Einträge geführt. Step_UUID und Calc_UUID
+-- sind Rückreferenzen auf den Host (ScriptStep, LayoutObject, Field, CustomFunction),
+-- keine eigenständigen Identitäten. Doppelte Catalog-Einträge mit identischer UUID
+-- führten zu falsch-positiven Referenz-Anzeigen. Die DDR-Tabellen werden weiterhin
+-- direkt über Step_UUID / Calc_Hash in den Detail-Templates referenziert.
 
 -- 16. PasteIndexList (Paste Index Objects)
 SELECT
@@ -1047,15 +1175,31 @@ FROM ExternalDataSourceCatalog
 UNION ALL
 
 -- 23. VariablesCatalog (alle Variablen)
+-- UUID = md5(Scope || Scope_Anchor || Name) — eine Identität pro Scope-Instanz
 SELECT
-    md5(Variable_Name || '::' || File_Name) as Object_UUID,
+    md5(Variable_Scope || '::' || Scope_Anchor || '::' || Variable_Name) as Object_UUID,
     'Variable' as Object_Type,
     Display_Name as Object_Name,
     File_Name,
     'VariablesCatalog' as Source_Table,
     NULL as Object_ID
 FROM VariablesCatalog
-WHERE Variable_Scope IN ('global', 'local', 'superglobal');
+WHERE Variable_Scope IN ('global', 'local', 'superglobal')
+
+UNION ALL
+
+-- 24. FolderHierarchy (Folder für Scripts/Layouts/CustomFunctions)
+-- Object_Type='Folder' für ALLE Folder-Arten; Source_Table dient als Subtype-Diskriminator.
+-- Separators werden NICHT in ObjectCatalog aufgenommen (reine UI-Marker, siehe FolderHierarchy-View).
+SELECT
+    Source_UUID as Object_UUID,
+    'Folder' as Object_Type,
+    Item_Name as Object_Name,
+    File_Name,
+    Source_Table,
+    NULL as Object_ID
+FROM FolderHierarchy
+WHERE subtype = 'Folder';
 
 -- Indexes für ObjectCatalog
 CREATE INDEX idx_objectcatalog_type ON ObjectCatalog(Object_Type);
@@ -1083,6 +1227,7 @@ SELECT
     'TableOccurrence' as Target_Type,
     'operational' as Link_Type,
     'left_table' as Link_Role,
+    NULL as Link_Subrole,
     rc.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (rc.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1099,6 +1244,7 @@ SELECT
     'TableOccurrence' as Target_Type,
     'operational' as Link_Type,
     'right_table' as Link_Role,
+    NULL as Link_Subrole,
     rc.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (rc.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1115,6 +1261,7 @@ SELECT
     'Field' as Target_Type,
     'operational' as Link_Type,
     'left_field' as Link_Role,
+    NULL as Link_Subrole,
     rc.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (rc.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1131,6 +1278,7 @@ SELECT
     'Field' as Target_Type,
     'operational' as Link_Type,
     'right_field' as Link_Role,
+    NULL as Link_Subrole,
     rc.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (rc.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1147,6 +1295,7 @@ SELECT
     'BaseTable' as Target_Type,
     'operational' as Link_Type,
     'parent_table' as Link_Role,
+    NULL as Link_Subrole,
     f.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (f.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1163,6 +1312,7 @@ SELECT
     'BaseTable' as Target_Type,
     'operational' as Link_Type,
     'base_table' as Link_Role,
+    NULL as Link_Subrole,
     toc.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (toc.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1179,6 +1329,7 @@ SELECT
     'ExternalDataSource' as Target_Type,
     'operational' as Link_Type,
     'data_source' as Link_Role,
+    NULL as Link_Subrole,
     toc.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (toc.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1196,6 +1347,7 @@ SELECT
     'TableOccurrence' as Target_Type,
     'operational' as Link_Type,
     'context_table' as Link_Role,
+    NULL as Link_Subrole,
     l.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (l.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1205,13 +1357,18 @@ LEFT JOIN ObjectCatalog oc_target ON (SELECT TO_UUID FROM TableOccurrenceCatalog
 UNION ALL
 
 -- 9. Layout Objects → Layouts (Parent)
+-- Link_Type 'operational': pragmatisch betrachtet ist "LayoutObject liegt auf
+-- Layout X" eine funktionale Information (welches Layout zeigt dieses Element?),
+-- nicht nur eine reine Container-Hierarchie. Macht den Link in Standard-
+-- Reference-Listen sichtbar (Frontend-Default ist Link_Type='operational').
 SELECT
     lo.Object_UUID as Source_UUID,
     'LayoutObject' as Source_Type,
     (SELECT L_UUID FROM Layouts WHERE L_ID = lo.Layout_ID AND File_Name = lo.File_Name LIMIT 1) as Target_UUID,
     'Layout' as Target_Type,
-    'structural' as Link_Type,
+    'operational' as Link_Type,
     'parent_layout' as Link_Role,
+    NULL as Link_Subrole,
     lo.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (lo.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1228,6 +1385,7 @@ SELECT
     'LayoutObject' as Target_Type,
     'structural' as Link_Type,
     'parent_object' as Link_Role,
+    NULL as Link_Subrole,
     child.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (child.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1245,6 +1403,7 @@ SELECT
     'Script' as Target_Type,
     'structural' as Link_Type,
     'parent_script' as Link_Role,
+    NULL as Link_Subrole,
     sfs.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (sfs.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1261,6 +1420,7 @@ SELECT
     'Field' as Target_Type,
     'operational' as Link_Type,
     'source_field' as Link_Role,
+    NULL as Link_Subrole,
     ovl.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (ovl.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1278,6 +1438,7 @@ SELECT
     'TableOccurrence' as Target_Type,
     'operational' as Link_Type,
     'source_table' as Link_Role,
+    NULL as Link_Subrole,
     ovl.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (ovl.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1299,6 +1460,7 @@ SELECT
     'Script' as Target_Type,
     'operational' as Link_Type,
     'calls_script' as Link_Role,
+    NULL as Link_Subrole,
     xsr.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (xsr.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1317,6 +1479,7 @@ SELECT
     'Field' as Target_Type,
     'operational' as Link_Type,
     'sets_field' as Link_Role,
+    NULL as Link_Subrole,
     xsr.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (xsr.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1336,6 +1499,7 @@ SELECT
     'Field' as Target_Type,
     'operational' as Link_Type,
     'navigates_to_field' as Link_Role,
+    NULL as Link_Subrole,
     xsr.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (xsr.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1354,6 +1518,7 @@ SELECT
     'Script' as Target_Type,
     'operational' as Link_Type,
     'trigger_script' as Link_Role,
+    NULL as Link_Subrole,
     st.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (st.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1370,6 +1535,7 @@ SELECT
     'PrivilegeSet' as Target_Type,
     'operational' as Link_Type,
     'privilege_set' as Link_Role,
+    NULL as Link_Subrole,
     ac.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (ac.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1387,6 +1553,7 @@ SELECT
     'Field' as Target_Type,
     'operational' as Link_Type,
     'displays_field' as Link_Role,
+    NULL as Link_Subrole,
     xlr.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (xlr.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1405,6 +1572,7 @@ SELECT
     'Script' as Target_Type,
     'operational' as Link_Type,
     'triggers_script' as Link_Role,
+    NULL as Link_Subrole,
     xlr.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (xlr.File_Name != oc_target.File_Name) as Is_Cross_File
@@ -1423,6 +1591,7 @@ SELECT
     'ValueList' as Target_Type,
     'operational' as Link_Type,
     'uses_valuelist' as Link_Role,
+    NULL as Link_Subrole,
     xlr.File_Name as Source_File,
     COALESCE(oc_target.File_Name, xlr.File_Name) as Target_File,
     (xlr.File_Name != COALESCE(oc_target.File_Name, xlr.File_Name)) as Is_Cross_File
@@ -1441,6 +1610,7 @@ SELECT
     'TableOccurrence' as Target_Type,
     'operational' as Link_Type,
     'portal_context' as Link_Role,
+    NULL as Link_Subrole,
     xlr.File_Name as Source_File,
     COALESCE(oc_target.File_Name, xlr.File_Name) as Target_File,
     (xlr.File_Name != COALESCE(oc_target.File_Name, xlr.File_Name)) as Is_Cross_File
@@ -1459,6 +1629,7 @@ SELECT
     'Layout' as Target_Type,
     'operational' as Link_Type,
     'navigates_to_layout' as Link_Role,
+    NULL as Link_Subrole,
     xsr.File_Name as Source_File,
     COALESCE(oc_target.File_Name, xsr.File_Name) as Target_File,
     (xsr.File_Name != COALESCE(oc_target.File_Name, xsr.File_Name)) as Is_Cross_File
@@ -1477,6 +1648,7 @@ SELECT
     'Field' as Target_Type,
     'operational' as Link_Type,
     'lookup_source' as Link_Role,
+    NULL as Link_Subrole,
     f.File_Name as Source_File,
     COALESCE(oc_target.File_Name, f.File_Name) as Target_File,
     (f.File_Name != COALESCE(oc_target.File_Name, f.File_Name)) as Is_Cross_File
@@ -1496,6 +1668,7 @@ SELECT
     'TableOccurrence' as Target_Type,
     'operational' as Link_Type,
     'lookup_relationship' as Link_Role,
+    NULL as Link_Subrole,
     f.File_Name as Source_File,
     COALESCE(oc_target.File_Name, f.File_Name) as Target_File,
     (f.File_Name != COALESCE(oc_target.File_Name, f.File_Name)) as Is_Cross_File
@@ -1515,15 +1688,21 @@ UNION ALL
 SELECT DISTINCT
     vu.Script_UUID as Source_UUID,
     'Script' as Source_Type,
-    md5(vu.Variable_Name || '::' || vu.File_Name) as Target_UUID,
+    md5(vu.Variable_Scope || '::' || vu.Scope_Anchor || '::' || vu.Variable_Name) as Target_UUID,
     'Variable' as Target_Type,
     'operational' as Link_Type,
     'sets_variable' as Link_Role,
+    NULL as Link_Subrole,
     vu.File_Name as Source_File,
     vc.File_Name as Target_File,
-    (vu.File_Name != vc.File_Name) as Is_Cross_File
+    CASE WHEN vu.Variable_Scope IN ('local', 'global') THEN FALSE
+         ELSE (vu.File_Name != vc.File_Name)
+    END as Is_Cross_File
 FROM VariableUsages vu
-JOIN VariablesCatalog vc ON vu.Variable_Name = vc.Variable_Name AND vu.Variable_Scope = vc.Variable_Scope
+JOIN VariablesCatalog vc
+    ON vu.Variable_Name  = vc.Variable_Name
+   AND vu.Variable_Scope = vc.Variable_Scope
+   AND vu.Scope_Anchor   = vc.Scope_Anchor
 WHERE vu.Usage_Type = 'set'
   AND vu.Context_Type = 'script_step'
   AND vu.Variable_Scope IN ('global', 'local', 'superglobal')
@@ -1536,15 +1715,21 @@ UNION ALL
 SELECT DISTINCT
     vu.Script_UUID as Source_UUID,
     'Script' as Source_Type,
-    md5(vu.Variable_Name || '::' || vc.File_Name) as Target_UUID,
+    md5(vu.Variable_Scope || '::' || vu.Scope_Anchor || '::' || vu.Variable_Name) as Target_UUID,
     'Variable' as Target_Type,
     'operational' as Link_Type,
     'reads_variable' as Link_Role,
+    NULL as Link_Subrole,
     vu.File_Name as Source_File,
     vc.File_Name as Target_File,
-    (vu.File_Name != vc.File_Name) as Is_Cross_File
+    CASE WHEN vu.Variable_Scope IN ('local', 'global') THEN FALSE
+         ELSE (vu.File_Name != vc.File_Name)
+    END as Is_Cross_File
 FROM VariableUsages vu
-JOIN VariablesCatalog vc ON vu.Variable_Name = vc.Variable_Name AND vu.Variable_Scope = vc.Variable_Scope
+JOIN VariablesCatalog vc
+    ON vu.Variable_Name  = vc.Variable_Name
+   AND vu.Variable_Scope = vc.Variable_Scope
+   AND vu.Scope_Anchor   = vc.Scope_Anchor
 WHERE vu.Usage_Type = 'read'
   AND vu.Context_Type = 'script_step'
   AND vu.Variable_Scope IN ('global', 'local', 'superglobal')
@@ -1557,15 +1742,21 @@ UNION ALL
 SELECT DISTINCT
     vu.Context_UUID as Source_UUID,
     'Field' as Source_Type,
-    md5(vu.Variable_Name || '::' || vc.File_Name) as Target_UUID,
+    md5(vu.Variable_Scope || '::' || vu.Scope_Anchor || '::' || vu.Variable_Name) as Target_UUID,
     'Variable' as Target_Type,
     'operational' as Link_Type,
     'reads_variable' as Link_Role,
+    NULL as Link_Subrole,
     vu.File_Name as Source_File,
     vc.File_Name as Target_File,
-    (vu.File_Name != vc.File_Name) as Is_Cross_File
+    CASE WHEN vu.Variable_Scope IN ('local', 'global') THEN FALSE
+         ELSE (vu.File_Name != vc.File_Name)
+    END as Is_Cross_File
 FROM VariableUsages vu
-JOIN VariablesCatalog vc ON vu.Variable_Name = vc.Variable_Name AND vu.Variable_Scope = vc.Variable_Scope
+JOIN VariablesCatalog vc
+    ON vu.Variable_Name  = vc.Variable_Name
+   AND vu.Variable_Scope = vc.Variable_Scope
+   AND vu.Scope_Anchor   = vc.Scope_Anchor
 WHERE vu.Usage_Type = 'read'
   AND vu.Context_Type IN ('calculation', 'auto_enter_calc')
   AND vu.Variable_Scope IN ('global', 'local', 'superglobal')
@@ -1578,15 +1769,21 @@ UNION ALL
 SELECT DISTINCT
     vu.Context_UUID as Source_UUID,
     'CustomFunction' as Source_Type,
-    md5(vu.Variable_Name || '::' || vc.File_Name) as Target_UUID,
+    md5(vu.Variable_Scope || '::' || vu.Scope_Anchor || '::' || vu.Variable_Name) as Target_UUID,
     'Variable' as Target_Type,
     'operational' as Link_Type,
     CASE vu.Usage_Type WHEN 'set' THEN 'sets_variable' ELSE 'reads_variable' END as Link_Role,
+    NULL as Link_Subrole,
     vu.File_Name as Source_File,
     vc.File_Name as Target_File,
-    (vu.File_Name != vc.File_Name) as Is_Cross_File
+    CASE WHEN vu.Variable_Scope IN ('local', 'global') THEN FALSE
+         ELSE (vu.File_Name != vc.File_Name)
+    END as Is_Cross_File
 FROM VariableUsages vu
-JOIN VariablesCatalog vc ON vu.Variable_Name = vc.Variable_Name AND vu.Variable_Scope = vc.Variable_Scope
+JOIN VariablesCatalog vc
+    ON vu.Variable_Name  = vc.Variable_Name
+   AND vu.Variable_Scope = vc.Variable_Scope
+   AND vu.Scope_Anchor   = vc.Scope_Anchor
 WHERE vu.Context_Type = 'custom_function'
   AND vu.Variable_Scope IN ('global', 'local', 'superglobal')
   AND vu.Context_UUID IS NOT NULL
@@ -1598,21 +1795,150 @@ UNION ALL
 SELECT DISTINCT
     vu.Context_UUID as Source_UUID,
     'LayoutObject' as Source_Type,
-    md5(vu.Variable_Name || '::' || vc.File_Name) as Target_UUID,
+    md5(vu.Variable_Scope || '::' || vu.Scope_Anchor || '::' || vu.Variable_Name) as Target_UUID,
     'Variable' as Target_Type,
     'operational' as Link_Type,
     CASE vu.Source
         WHEN 'merge_variable' THEN 'displays_variable'
         ELSE 'reads_variable'
     END as Link_Role,
+    NULL as Link_Subrole,
     vu.File_Name as Source_File,
     vc.File_Name as Target_File,
-    (vu.File_Name != vc.File_Name) as Is_Cross_File
+    CASE WHEN vu.Variable_Scope IN ('local', 'global') THEN FALSE
+         ELSE (vu.File_Name != vc.File_Name)
+    END as Is_Cross_File
 FROM VariableUsages vu
-JOIN VariablesCatalog vc ON vu.Variable_Name = vc.Variable_Name AND vu.Variable_Scope = vc.Variable_Scope
+JOIN VariablesCatalog vc
+    ON vu.Variable_Name  = vc.Variable_Name
+   AND vu.Variable_Scope = vc.Variable_Scope
+   AND vu.Scope_Anchor   = vc.Scope_Anchor
 WHERE vu.Context_Type = 'layout_object'
   AND vu.Variable_Scope IN ('global', 'local')
-  AND vu.Context_UUID IS NOT NULL;
+  AND vu.Context_UUID IS NOT NULL
+
+UNION ALL
+
+-- 29. Item/Sub-Folder → Folder (parent_folder, structural)
+-- Verbindet Scripts/Layouts mit ihrem direkten Parent-Folder und Sub-Folder mit ihrem Parent-Folder.
+-- Source_Type wird aus subtype + Source_Table abgeleitet.
+-- Hinweis: parent_folder ist NICHT mit parent_object zu verwechseln — letzteres ist
+-- die Layout-interne Objekt-Hierarchie (Group/Tab/Portal-Children).
+SELECT
+    fh.Source_UUID as Source_UUID,
+    CASE
+        WHEN fh.subtype = 'Folder' THEN 'Folder'
+        WHEN fh.Source_Table = 'ScriptCatalog' THEN 'Script'
+        WHEN fh.Source_Table = 'Layouts' THEN 'Layout'
+        WHEN fh.Source_Table = 'CustomFunctionsCatalog' THEN 'CustomFunction'
+    END as Source_Type,
+    fh.Parent_Folder_UUID as Target_UUID,
+    'Folder' as Target_Type,
+    'structural' as Link_Type,
+    'parent_folder' as Link_Role,
+    NULL as Link_Subrole,
+    fh.File_Name as Source_File,
+    fh.File_Name as Target_File,
+    FALSE as Is_Cross_File
+FROM FolderHierarchy fh
+WHERE fh.Parent_Folder_UUID IS NOT NULL
+  AND fh.subtype IN ('Folder', 'Item')
+
+UNION ALL
+
+-- ========================================
+-- Erweiterte Referenz-Auflösung (PRD prd_referenzen_extendet.md)
+-- ========================================
+
+-- 30. Calc-Source → Field (reads_field)
+-- Quelle: XMLCalcReferences — alle Field-Referenzen aus DDR-Calc-Chunks.
+-- Cross-File ist möglich: der Calc-Chunk liegt in der nutzenden Datei,
+-- die Field-UUID kann auf eine andere Datei zeigen.
+-- DISTINCT verhindert Aufblähung durch redundante DDRREF-Vorkommen im XML
+-- (gleicher Hash kann z.B. in einem Layout 128x referenziert werden, wenn
+-- alle Sub-Elemente dieselbe Hide-Calc nutzen). Ein Source-Target-Subrole-
+-- Tupel bleibt eindeutig — Mehrfacherwähnung wird kollabiert.
+SELECT DISTINCT
+    xcr.Source_UUID as Source_UUID,
+    xcr.Source_Type as Source_Type,
+    xcr.Ref_UUID as Target_UUID,
+    'Field' as Target_Type,
+    'operational' as Link_Type,
+    'reads_field' as Link_Role,
+    xcr.Subrole as Link_Subrole,
+    xcr.File_Name as Source_File,
+    oc_target.File_Name as Target_File,
+    (xcr.File_Name != oc_target.File_Name) as Is_Cross_File
+FROM XMLCalcReferences xcr
+JOIN ObjectCatalog oc_target
+  ON xcr.Ref_UUID = oc_target.Object_UUID
+ AND oc_target.Object_Type = 'Field'
+WHERE xcr.Ref_Type = 'field'
+  AND xcr.Ref_UUID IS NOT NULL
+
+UNION ALL
+
+-- 31. Calc-Source → CustomFunction (calls_customfunction)
+-- CustomFunctions sind per FileMaker-Definition strikt datei-lokal:
+-- Aufrufe können nur innerhalb der definierenden Datei erfolgen, gleichnamige
+-- CFs in unterschiedlichen Dateien sind eigenständige Objekte.
+-- → File-lokaler JOIN, Is_Cross_File konstant FALSE.
+-- DISTINCT analog zu Block 30, kollabiert Mehrfachreferenzen.
+SELECT DISTINCT
+    xcr.Source_UUID as Source_UUID,
+    xcr.Source_Type as Source_Type,
+    cf.CF_UUID as Target_UUID,
+    'CustomFunction' as Target_Type,
+    'operational' as Link_Type,
+    'calls_customfunction' as Link_Role,
+    xcr.Subrole as Link_Subrole,
+    xcr.File_Name as Source_File,
+    cf.File_Name as Target_File,
+    FALSE as Is_Cross_File
+FROM XMLCalcReferences xcr
+JOIN CustomFunctionsCatalog cf
+  ON xcr.Ref_Name = cf.CF_Name
+ AND xcr.File_Name = cf.File_Name
+WHERE xcr.Ref_Type = 'customfunction'
+  AND xcr.Ref_Name IS NOT NULL
+
+UNION ALL
+
+-- 32. Layout → Field (displays_field, aggregiert)
+-- Aggregierter Direktlink aus dem Doppelhop:
+--   LayoutObject → Field (displays_field) + LayoutObject → Layout (parent_layout).
+-- Praxis: ein Feld kann auf einem Layout in mehreren LayoutObjects auftauchen
+-- (verschiedene Slots, Tab-Panels, Group-Mitglieder). DISTINCT kollabiert das
+-- auf das eindeutige (Layout, Field)-Paar.
+-- Richtung Layout → Field gewählt (analog zu LayoutObject → Field), damit der
+-- Link beim Field als Reverse-Lookup ("Wird verwendet von") automatisch
+-- erscheint — parallel zum LayoutObject-granularen displays_field-Link.
+-- Source_Type unterscheidet die beiden Granularitäten:
+--   'LayoutObject' = einzelnes Element (mit Bounds-Kontext und Subrole)
+--   'Layout'       = aggregiert (Layout zeigt Field)
+SELECT DISTINCT
+    l.L_UUID as Source_UUID,
+    'Layout' as Source_Type,
+    xlr.Ref_UUID as Target_UUID,
+    'Field' as Target_Type,
+    'operational' as Link_Type,
+    'displays_field' as Link_Role,
+    NULL as Link_Subrole,
+    l.File_Name as Source_File,
+    oc_field.File_Name as Target_File,
+    (l.File_Name != oc_field.File_Name) as Is_Cross_File
+FROM XMLLayoutReferences xlr
+JOIN LayoutObjects lo
+    ON xlr.Object_UUID = lo.Object_UUID
+   AND xlr.File_Name   = lo.File_Name
+JOIN Layouts l
+    ON lo.Layout_ID = l.L_ID
+   AND lo.File_Name = l.File_Name
+JOIN ObjectCatalog oc_field
+    ON xlr.Ref_UUID = oc_field.Object_UUID
+   AND oc_field.Object_Type = 'Field'
+WHERE xlr.Ref_Type = 'field'
+  AND xlr.Ref_UUID IS NOT NULL;
 
 -- Indexes für ObjectLinks
 CREATE INDEX idx_objectlinks_source ON ObjectLinks(Source_UUID);

@@ -465,7 +465,8 @@ SELECT
     f.Storage.global AS Is_Global,
     f.Storage.maxRepetitions AS Max_Repetitions,
     f.Calculation.DDRREF.hash AS DDR_Hash,  -- DDR-Hash für Calculated Fields (ab FM21+)
-    f.Calculation.Text AS Calculation_Text,  -- Klartext-Formel aus <Text> CDATA
+    -- chr(127) -> chr(10): Preprocessing-Sentinel für CR zurück zu LF
+    replace(f.Calculation.Text, chr(127), chr(10)) AS Calculation_Text,
     -- AutoEnter-Basisattribute
     CASE WHEN f.AutoEnter.type = '' THEN NULL ELSE f.AutoEnter.type END AS AutoEnter_Type,
     f.AutoEnter.prohibitModification AS AutoEnter_ProhibitMod,
@@ -477,7 +478,7 @@ SELECT
     f.AutoEnter.Looked_up.dontCopyIfEmpty AS Lookup_DontCopyIfEmpty,
     f.AutoEnter.Looked_up.noMatchCopyOption AS Lookup_NoMatchOption,
     -- AutoEnter Calculated-Details
-    f.AutoEnter.Calculated.Calculation.Text AS AE_Calc_Text,
+    replace(f.AutoEnter.Calculated.Calculation.Text, chr(127), chr(10)) AS AE_Calc_Text,
     f.AutoEnter.Calculated.Calculation.DDRREF.hash AS AE_Calc_Hash,
     f.AutoEnter.overwriteExisting AS AE_Calc_OverwriteExisting,
     f.AutoEnter.alwaysEvaluate AS AE_Calc_AlwaysEvaluate,
@@ -767,7 +768,7 @@ SELECT
     CustomFunctionReference.id AS CF_ID,
     CustomFunctionReference.name AS CF_Name,
     CustomFunctionReference.UUID AS CF_UUID,
-    Calculation.Text AS Calculation_Code,
+    replace(Calculation.Text, chr(127), chr(10)) AS Calculation_Code,
     [ {'type': c.type, 'content': c."#text"} for c in Calculation.ChunkList.Chunk ] AS Code_Chunks,
     Calculation.DDRREF.hash AS DDR_Hash,
     regexp_replace(
@@ -817,6 +818,10 @@ WHERE cf.CF_UUID = calc.CF_UUID
 
 
 -- ScriptCatalog
+-- Sequence_ID: laufende Nummer in der XML-Reihenfolge (kritisch für Folder-Hierarchie!).
+-- Script_ID ist NICHT die UI-Reihenfolge — FileMaker numeriert Scripts sequentiell beim
+-- Anlegen, nicht beim Ordnen. Für korrekte Stack-Berechnung der Folder muss die echte
+-- XML-Reihenfolge erhalten bleiben.
 CREATE TABLE IF NOT EXISTS ScriptCatalog (
     Script_ID BIGINT,
     Script_Name VARCHAR,
@@ -829,6 +834,7 @@ CREATE TABLE IF NOT EXISTS ScriptCatalog (
     Option_Bitmask INTEGER,
     Is_Hidden BOOLEAN,
     Full_Access BOOLEAN,
+    Sequence_ID BIGINT,
     File_Name VARCHAR,
     PRIMARY KEY (Script_UUID, File_Name)
 );
@@ -841,38 +847,46 @@ WITH filename_normalized AS (
             ''
         ) as File_Name
     FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+script_records AS (
+    -- Pro Datei: ROW_NUMBER() in der read_xml-Reihenfolge (= XML-Reihenfolge).
+    SELECT
+        ROW_NUMBER() OVER () AS Sequence_ID,
+        id, name, isFolder, isSeparatorItem, UUID, Options
+    FROM read_xml(
+        getvariable('fm_xml'),
+        root_element='ScriptCatalog',
+        record_element='Script',
+        max_depth=10,
+        maximum_file_size=getvariable('max_filesize'),
+        columns={
+            'id': 'BIGINT',
+            'name': 'VARCHAR',
+            'isFolder': 'VARCHAR',
+            'isSeparatorItem': 'BOOLEAN',
+            'UUID': 'STRUCT("#text" VARCHAR, modifications BIGINT, userName VARCHAR, accountName VARCHAR, timestamp VARCHAR)',
+            'Options': 'STRUCT("#text" INTEGER, hidden BOOLEAN, access VARCHAR, SiriShortcutVisible BOOLEAN, runwithfullaccess BOOLEAN, compatibility INTEGER)'
+        }
+    )
+    WHERE id IS NOT NULL
 )
 INSERT INTO ScriptCatalog
 SELECT
-    id AS Script_ID,
-    name AS Script_Name,
-    isFolder AS Folder_Type,
-    COALESCE(isSeparatorItem, False) AS Is_Separator,
-    UUID."#text" AS Script_UUID,
-    UUID.modifications AS Modifications,
-    UUID.userName AS Last_Modified_By,
-    UUID.timestamp AS Last_Modified_At,
-    Options."#text" AS Option_Bitmask,
-    Options.hidden AS Is_Hidden,
-    Options.runwithfullaccess AS Full_Access,
+    sr.id AS Script_ID,
+    sr.name AS Script_Name,
+    sr.isFolder AS Folder_Type,
+    COALESCE(sr.isSeparatorItem, False) AS Is_Separator,
+    sr.UUID."#text" AS Script_UUID,
+    sr.UUID.modifications AS Modifications,
+    sr.UUID.userName AS Last_Modified_By,
+    sr.UUID.timestamp AS Last_Modified_At,
+    sr.Options."#text" AS Option_Bitmask,
+    sr.Options.hidden AS Is_Hidden,
+    sr.Options.runwithfullaccess AS Full_Access,
+    sr.Sequence_ID,
     fn.File_Name as File_Name
-FROM read_xml(
-    getvariable('fm_xml'),
-    root_element='ScriptCatalog',
-    record_element='Script',
-    max_depth=10,
-    maximum_file_size=getvariable('max_filesize'),
-    columns={
-        'id': 'BIGINT',
-        'name': 'VARCHAR',
-        'isFolder': 'VARCHAR',
-        'isSeparatorItem': 'BOOLEAN',
-        'UUID': 'STRUCT("#text" VARCHAR, modifications BIGINT, userName VARCHAR, accountName VARCHAR, timestamp VARCHAR)',
-        'Options': 'STRUCT("#text" INTEGER, hidden BOOLEAN, access VARCHAR, SiriShortcutVisible BOOLEAN, runwithfullaccess BOOLEAN, compatibility INTEGER)'
-    }
-)
+FROM script_records sr
 CROSS JOIN filename_normalized fn
-WHERE id IS NOT NULL
 ON CONFLICT (Script_UUID, File_Name) DO UPDATE SET
     Script_ID = EXCLUDED.Script_ID,
     Script_Name = EXCLUDED.Script_Name,
@@ -883,7 +897,8 @@ ON CONFLICT (Script_UUID, File_Name) DO UPDATE SET
     Last_Modified_At = EXCLUDED.Last_Modified_At,
     Option_Bitmask = EXCLUDED.Option_Bitmask,
     Is_Hidden = EXCLUDED.Is_Hidden,
-    Full_Access = EXCLUDED.Full_Access;
+    Full_Access = EXCLUDED.Full_Access,
+    Sequence_ID = EXCLUDED.Sequence_ID;
 
 
 -- StepsForScripts
@@ -949,7 +964,7 @@ SELECT
     xml_extract_elements(step_xml, '/Step/ParameterValues')[1]::VARCHAR as Parameters_XML,
     xml_extract_text(step_xml, '//Parameter/@type')[1] as Parameter_Type,
     xml_extract_text(step_xml, '//Parameter[@type="Variable"]/Name/@value')[1] as Variable_Name,
-    xml_extract_text(step_xml, '//Calculation/Text')[1] as Calculation_Text,
+    replace(xml_extract_text(step_xml, '//Calculation/Text')[1], chr(127), chr(10)) as Calculation_Text,
     xml_extract_text(step_xml, '//Boolean/@type')[1] as Boolean_Type,
     xml_extract_text(step_xml, '//Boolean/@value')[1] as Boolean_Value,
     fn.File_Name as File_Name
@@ -1089,11 +1104,17 @@ WHERE xml_extract_text(step_xml, '/Step/@name')[1] = 'Go to Layout'
 
 
 -- Layouts
+-- Folder_Type / Is_Separator analog zu ScriptCatalog: Layouts können im
+-- "Manage Layouts"-Dialog Ordner und Trennlinien enthalten (isFolder="True"/"Marker").
+-- Sequence_ID: laufende Nummer in der XML-Reihenfolge (siehe Hinweis bei ScriptCatalog).
 CREATE TABLE IF NOT EXISTS Layouts (
     L_ID BIGINT,
     L_Name VARCHAR,
     L_UUID VARCHAR,
     L_TO_Name VARCHAR,
+    Folder_Type VARCHAR,
+    Is_Separator BOOLEAN,
+    Sequence_ID BIGINT,
     File_Name VARCHAR,
     PRIMARY KEY (L_UUID, File_Name)
 );
@@ -1106,32 +1127,48 @@ WITH filename_normalized AS (
             ''
         ) as File_Name
     FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
+),
+layout_records AS (
+    SELECT
+        ROW_NUMBER() OVER () AS Sequence_ID,
+        id, name, isFolder, isSeparatorItem, UUID, TableOccurrenceReference
+    FROM read_xml(
+        getvariable('fm_xml'),
+        root_element='LayoutCatalog',
+        record_element='Layout',
+        maximum_file_size=getvariable('max_filesize'),
+        columns={
+            'id': 'BIGINT',
+            'name': 'VARCHAR',
+            'isFolder': 'VARCHAR',
+            'isSeparatorItem': 'BOOLEAN',
+            'UUID': 'STRUCT("#text" VARCHAR)',
+            'TableOccurrenceReference': 'STRUCT(name VARCHAR)'
+        }
+    )
+    -- Folder-Records (isFolder='True'/'Marker') haben keine TableOccurrenceReference;
+    -- daher nur auf id filtern, sonst werden Ordner und Trennlinien ausgeschlossen.
+    WHERE id IS NOT NULL
 )
 INSERT INTO Layouts
 SELECT
-    id AS L_ID,
-    name AS L_Name,
-    UUID."#text" AS L_UUID,
-    TableOccurrenceReference.name AS L_TO_Name,
+    lr.id AS L_ID,
+    lr.name AS L_Name,
+    lr.UUID."#text" AS L_UUID,
+    lr.TableOccurrenceReference.name AS L_TO_Name,
+    lr.isFolder AS Folder_Type,
+    COALESCE(lr.isSeparatorItem, False) AS Is_Separator,
+    lr.Sequence_ID,
     fn.File_Name as File_Name
-FROM read_xml(
-    getvariable('fm_xml'),
-    root_element='LayoutCatalog',
-    record_element='Layout',
-    maximum_file_size=getvariable('max_filesize'),
-    columns={
-        'id': 'BIGINT',
-        'name': 'VARCHAR',
-        'UUID': 'STRUCT("#text" VARCHAR)',
-        'TableOccurrenceReference': 'STRUCT(name VARCHAR)'
-    }
-)
+FROM layout_records lr
 CROSS JOIN filename_normalized fn
-WHERE L_ID IS NOT NULL AND TableOccurrenceReference.name IS NOT NULL
 ON CONFLICT (L_UUID, File_Name) DO UPDATE SET
     L_ID = EXCLUDED.L_ID,
     L_Name = EXCLUDED.L_Name,
-    L_TO_Name = EXCLUDED.L_TO_Name;
+    L_TO_Name = EXCLUDED.L_TO_Name,
+    Folder_Type = EXCLUDED.Folder_Type,
+    Is_Separator = EXCLUDED.Is_Separator,
+    Sequence_ID = EXCLUDED.Sequence_ID;
 
 
 -- LayoutParts
@@ -1379,11 +1416,12 @@ SELECT
     Bounds_Right,
     Parent_Object_ID,
     Nesting_Level,
-    Hide_Calculation_Text,
-    Tooltip_Calculation_Text,
-    Label_Calculation_Text,
-    ScriptTrigger_Parameter_Text,
-    Text_Content,
+    -- chr(127) -> chr(10): Preprocessing-Sentinel für CR zurück zu LF
+    replace(Hide_Calculation_Text, chr(127), chr(10)) as Hide_Calculation_Text,
+    replace(Tooltip_Calculation_Text, chr(127), chr(10)) as Tooltip_Calculation_Text,
+    replace(Label_Calculation_Text, chr(127), chr(10)) as Label_Calculation_Text,
+    replace(ScriptTrigger_Parameter_Text, chr(127), chr(10)) as ScriptTrigger_Parameter_Text,
+    replace(Text_Content, chr(127), chr(10)) as Text_Content,
     object_xml::VARCHAR as Object_XML,
     fn.File_Name as File_Name
 FROM nested_objects
@@ -1801,7 +1839,7 @@ SELECT
         1
     ) as Step_UUID,
     xml_extract_text(step_elem, '//*/@hash')[1] as Step_Hash,
-    xml_extract_text(step_elem, '//text()')[1] as Step_Text,
+    replace(xml_extract_text(step_elem, '//text()')[1], chr(127), chr(10)) as Step_Text,
     fn.File_Name as File_Name
 FROM ddr_script_raw
 CROSS JOIN filename_normalized fn
@@ -1853,7 +1891,7 @@ SELECT
     Calc_UUID,
     Calc_Hash,
     ROW_NUMBER() OVER (PARTITION BY Calc_UUID ORDER BY (SELECT NULL)) as Chunk_Index,
-    xml_extract_text(chunk_xml, '@type')[1] as Chunk_Type,
+    xml_extract_text(chunk_xml, '/Chunk/@type')[1] as Chunk_Type,
     COALESCE(
         xml_extract_text(chunk_xml, 'text()')[1],
         chunk_xml::VARCHAR
@@ -1865,6 +1903,430 @@ ON CONFLICT (Calc_UUID, Chunk_Index, File_Name) DO UPDATE SET
     Calc_Hash = EXCLUDED.Calc_Hash,
     Chunk_Type = EXCLUDED.Chunk_Type,
     Chunk_Content = EXCLUDED.Chunk_Content;
+
+
+-- ============================================
+-- XMLCalcReferences (PRD Erweiterte Referenzen v1)
+-- ============================================
+-- Resolved DDR-Refs (FieldRef + CustomFunctionRef) aus allen Calculation-Quellen:
+--   - FieldsForTables (Calculated, AutoEnter-Calc) via DDR_Hash / AE_Calc_Hash
+--   - CustomFunctionsCatalog via DDR_Hash
+--   - StepsForScripts via DDRREF-Hashes im Parameters_XML
+--   - LayoutObjects via DDRREF-Hashes im Object_XML
+-- Plugin-Funktionen landen in PluginFunctionUsages (separate Tabelle, da kein
+-- ObjectCatalog-Eintrag vorhanden).
+CREATE TABLE IF NOT EXISTS XMLCalcReferences (
+    Source_UUID VARCHAR,         -- Script_UUID, Field_UUID, CF_UUID oder LayoutObject_UUID
+    Source_Type VARCHAR,         -- 'Script', 'Field', 'CustomFunction', 'LayoutObject'
+    Source_Subkey VARCHAR,       -- Step_Index (Steps), NULL (Field/CF/LayoutObject)
+    Subrole VARCHAR,             -- 'Hide','Tooltip','Condition_1','action','1','2',NULL
+    Calc_Hash VARCHAR,
+    Ref_Type VARCHAR,            -- 'field' oder 'customfunction'
+    Ref_UUID VARCHAR,            -- Field-UUID (NULL bei CF, Auflösung per Name)
+    Ref_Name VARCHAR,            -- Field-Name oder CF-Name
+    File_Name VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS PluginFunctionUsages (
+    Source_UUID VARCHAR,
+    Source_Type VARCHAR,
+    Source_Subkey VARCHAR,       -- Step_Index oder NULL
+    Subrole VARCHAR,
+    Plugin_Function_Name VARCHAR,
+    Calc_Hash VARCHAR,
+    File_Name VARCHAR
+);
+
+-- Idempotenz: bestehende Einträge der aktuellen Datei entfernen
+DELETE FROM XMLCalcReferences WHERE File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+);
+
+DELETE FROM PluginFunctionUsages WHERE File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+);
+
+-- ============================================
+-- A.2 — Refs aus Calculated Fields & AutoEnter-Calc (direkter DDR_Hash-Match)
+-- ============================================
+
+-- A.2.1 FieldRef in Calculated Fields (DDR_Hash)
+INSERT INTO XMLCalcReferences
+SELECT
+    f.Field_UUID, 'Field', NULL, NULL,
+    d.Calc_Hash, 'field',
+    regexp_extract(d.Chunk_Content, 'FieldReference[^>]*UUID="([^"]+)"', 1),
+    regexp_extract(d.Chunk_Content, 'FieldReference[^>]*name="([^"]+)"', 1),
+    d.File_Name
+FROM FieldsForTables f
+JOIN DDR_Calculations d ON f.DDR_Hash = d.Calc_Hash AND f.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'FieldRef'
+  AND f.DDR_Hash IS NOT NULL
+  AND f.File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+  );
+
+-- A.2.2 CustomFunctionRef in Calculated Fields (DDR_Hash)
+INSERT INTO XMLCalcReferences
+SELECT
+    f.Field_UUID, 'Field', NULL, NULL,
+    d.Calc_Hash, 'customfunction',
+    NULL,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    d.File_Name
+FROM FieldsForTables f
+JOIN DDR_Calculations d ON f.DDR_Hash = d.Calc_Hash AND f.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'CustomFunctionRef'
+  AND f.DDR_Hash IS NOT NULL
+  AND f.File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+  );
+
+-- A.2.3 PluginFunctionRef in Calculated Fields → PluginFunctionUsages
+INSERT INTO PluginFunctionUsages
+SELECT
+    f.Field_UUID, 'Field', NULL, NULL,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    d.Calc_Hash,
+    d.File_Name
+FROM FieldsForTables f
+JOIN DDR_Calculations d ON f.DDR_Hash = d.Calc_Hash AND f.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'PluginFunctionRef'
+  AND f.DDR_Hash IS NOT NULL
+  AND f.File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+  );
+
+-- A.2.4 FieldRef in AutoEnter-Calc (AE_Calc_Hash)
+INSERT INTO XMLCalcReferences
+SELECT
+    f.Field_UUID, 'Field', NULL, NULL,
+    d.Calc_Hash, 'field',
+    regexp_extract(d.Chunk_Content, 'FieldReference[^>]*UUID="([^"]+)"', 1),
+    regexp_extract(d.Chunk_Content, 'FieldReference[^>]*name="([^"]+)"', 1),
+    d.File_Name
+FROM FieldsForTables f
+JOIN DDR_Calculations d ON f.AE_Calc_Hash = d.Calc_Hash AND f.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'FieldRef'
+  AND f.AE_Calc_Hash IS NOT NULL
+  AND f.File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+  );
+
+-- A.2.5 CustomFunctionRef in AutoEnter-Calc (AE_Calc_Hash)
+INSERT INTO XMLCalcReferences
+SELECT
+    f.Field_UUID, 'Field', NULL, NULL,
+    d.Calc_Hash, 'customfunction',
+    NULL,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    d.File_Name
+FROM FieldsForTables f
+JOIN DDR_Calculations d ON f.AE_Calc_Hash = d.Calc_Hash AND f.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'CustomFunctionRef'
+  AND f.AE_Calc_Hash IS NOT NULL
+  AND f.File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+  );
+
+-- A.2.6 PluginFunctionRef in AutoEnter-Calc → PluginFunctionUsages
+INSERT INTO PluginFunctionUsages
+SELECT
+    f.Field_UUID, 'Field', NULL, NULL,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    d.Calc_Hash,
+    d.File_Name
+FROM FieldsForTables f
+JOIN DDR_Calculations d ON f.AE_Calc_Hash = d.Calc_Hash AND f.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'PluginFunctionRef'
+  AND f.AE_Calc_Hash IS NOT NULL
+  AND f.File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+  );
+
+-- ============================================
+-- A.3 — Refs aus CustomFunctions (direkter DDR_Hash-Match)
+-- ============================================
+
+-- A.3.1 FieldRef in CustomFunctions
+INSERT INTO XMLCalcReferences
+SELECT
+    cf.CF_UUID, 'CustomFunction', NULL, NULL,
+    d.Calc_Hash, 'field',
+    regexp_extract(d.Chunk_Content, 'FieldReference[^>]*UUID="([^"]+)"', 1),
+    regexp_extract(d.Chunk_Content, 'FieldReference[^>]*name="([^"]+)"', 1),
+    d.File_Name
+FROM CustomFunctionsCatalog cf
+JOIN DDR_Calculations d ON cf.DDR_Hash = d.Calc_Hash AND cf.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'FieldRef'
+  AND cf.DDR_Hash IS NOT NULL
+  AND cf.File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+  );
+
+-- A.3.2 CustomFunctionRef in CustomFunctions (CF→CF Aufrufe)
+INSERT INTO XMLCalcReferences
+SELECT
+    cf.CF_UUID, 'CustomFunction', NULL, NULL,
+    d.Calc_Hash, 'customfunction',
+    NULL,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    d.File_Name
+FROM CustomFunctionsCatalog cf
+JOIN DDR_Calculations d ON cf.DDR_Hash = d.Calc_Hash AND cf.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'CustomFunctionRef'
+  AND cf.DDR_Hash IS NOT NULL
+  AND cf.File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+  );
+
+-- A.3.3 PluginFunctionRef in CustomFunctions → PluginFunctionUsages
+INSERT INTO PluginFunctionUsages
+SELECT
+    cf.CF_UUID, 'CustomFunction', NULL, NULL,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    d.Calc_Hash,
+    d.File_Name
+FROM CustomFunctionsCatalog cf
+JOIN DDR_Calculations d ON cf.DDR_Hash = d.Calc_Hash AND cf.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'PluginFunctionRef'
+  AND cf.DDR_Hash IS NOT NULL
+  AND cf.File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+  );
+
+-- ============================================
+-- A.4 — Refs aus Script-Steps (DDRREF-Hashes via Regex)
+-- ============================================
+-- DDRREF-Pattern: kind="ChunkList" hash="<HEX>" ...>_<UUID>_<SLOT></DDRREF>
+-- Slot-Index ist FileMaker-spezifisch (Step-Typ-abhängig). Wir speichern ihn
+-- als Subrole, ohne semantische Auflösung.
+
+-- A.4.1 FieldRef in Script-Steps
+WITH step_hashes AS (
+    SELECT
+        s.Script_UUID,
+        s.Step_Index::VARCHAR AS Step_Index,
+        s.File_Name,
+        unnest(regexp_extract_all(s.Parameters_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 1)) AS Calc_Hash,
+        unnest(regexp_extract_all(s.Parameters_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 2)) AS Subrole
+    FROM StepsForScripts s
+    WHERE s.Parameters_XML LIKE '%DDRREF%'
+      AND s.File_Name = (
+        SELECT regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+        ) FROM read_xml_objects(getvariable('fm_xml'),
+            maximum_file_size=getvariable('max_filesize'))
+      )
+)
+INSERT INTO XMLCalcReferences
+SELECT
+    sh.Script_UUID, 'Script', sh.Step_Index, sh.Subrole,
+    sh.Calc_Hash, 'field',
+    regexp_extract(d.Chunk_Content, 'FieldReference[^>]*UUID="([^"]+)"', 1),
+    regexp_extract(d.Chunk_Content, 'FieldReference[^>]*name="([^"]+)"', 1),
+    sh.File_Name
+FROM step_hashes sh
+JOIN DDR_Calculations d
+  ON sh.Calc_Hash = d.Calc_Hash
+ AND sh.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'FieldRef';
+
+-- A.4.2 CustomFunctionRef in Script-Steps
+WITH step_hashes AS (
+    SELECT
+        s.Script_UUID,
+        s.Step_Index::VARCHAR AS Step_Index,
+        s.File_Name,
+        unnest(regexp_extract_all(s.Parameters_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 1)) AS Calc_Hash,
+        unnest(regexp_extract_all(s.Parameters_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 2)) AS Subrole
+    FROM StepsForScripts s
+    WHERE s.Parameters_XML LIKE '%DDRREF%'
+      AND s.File_Name = (
+        SELECT regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+        ) FROM read_xml_objects(getvariable('fm_xml'),
+            maximum_file_size=getvariable('max_filesize'))
+      )
+)
+INSERT INTO XMLCalcReferences
+SELECT
+    sh.Script_UUID, 'Script', sh.Step_Index, sh.Subrole,
+    sh.Calc_Hash, 'customfunction',
+    NULL,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    sh.File_Name
+FROM step_hashes sh
+JOIN DDR_Calculations d
+  ON sh.Calc_Hash = d.Calc_Hash
+ AND sh.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'CustomFunctionRef';
+
+-- A.4.3 PluginFunctionRef in Script-Steps → PluginFunctionUsages
+WITH step_hashes AS (
+    SELECT
+        s.Script_UUID,
+        s.Step_Index::VARCHAR AS Step_Index,
+        s.File_Name,
+        unnest(regexp_extract_all(s.Parameters_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 1)) AS Calc_Hash,
+        unnest(regexp_extract_all(s.Parameters_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 2)) AS Subrole
+    FROM StepsForScripts s
+    WHERE s.Parameters_XML LIKE '%DDRREF%'
+      AND s.File_Name = (
+        SELECT regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+        ) FROM read_xml_objects(getvariable('fm_xml'),
+            maximum_file_size=getvariable('max_filesize'))
+      )
+)
+INSERT INTO PluginFunctionUsages
+SELECT
+    sh.Script_UUID, 'Script', sh.Step_Index, sh.Subrole,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    sh.Calc_Hash,
+    sh.File_Name
+FROM step_hashes sh
+JOIN DDR_Calculations d
+  ON sh.Calc_Hash = d.Calc_Hash
+ AND sh.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'PluginFunctionRef';
+
+-- ============================================
+-- A.5 — Refs aus LayoutObjects (DDRREF-Hashes via Regex)
+-- ============================================
+-- Subrole: semantischer Suffix aus dem DDRREF (z.B. Hide, Tooltip, Condition_1,
+-- action, ScriptTrigger_*, Label, TabPanel, Portal, Placeholder, WebViewer).
+
+-- A.5.1 FieldRef in LayoutObjects
+WITH layout_obj_hashes AS (
+    SELECT
+        lo.Object_UUID,
+        lo.File_Name,
+        unnest(regexp_extract_all(lo.Object_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 1)) AS Calc_Hash,
+        unnest(regexp_extract_all(lo.Object_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 2)) AS Subrole
+    FROM LayoutObjects lo
+    WHERE lo.Object_XML LIKE '%DDRREF%'
+      AND lo.File_Name = (
+        SELECT regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+        ) FROM read_xml_objects(getvariable('fm_xml'),
+            maximum_file_size=getvariable('max_filesize'))
+      )
+)
+INSERT INTO XMLCalcReferences
+SELECT
+    loh.Object_UUID, 'LayoutObject', NULL, loh.Subrole,
+    loh.Calc_Hash, 'field',
+    regexp_extract(d.Chunk_Content, 'FieldReference[^>]*UUID="([^"]+)"', 1),
+    regexp_extract(d.Chunk_Content, 'FieldReference[^>]*name="([^"]+)"', 1),
+    loh.File_Name
+FROM layout_obj_hashes loh
+JOIN DDR_Calculations d
+  ON loh.Calc_Hash = d.Calc_Hash
+ AND loh.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'FieldRef';
+
+-- A.5.2 CustomFunctionRef in LayoutObjects
+WITH layout_obj_hashes AS (
+    SELECT
+        lo.Object_UUID,
+        lo.File_Name,
+        unnest(regexp_extract_all(lo.Object_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 1)) AS Calc_Hash,
+        unnest(regexp_extract_all(lo.Object_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 2)) AS Subrole
+    FROM LayoutObjects lo
+    WHERE lo.Object_XML LIKE '%DDRREF%'
+      AND lo.File_Name = (
+        SELECT regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+        ) FROM read_xml_objects(getvariable('fm_xml'),
+            maximum_file_size=getvariable('max_filesize'))
+      )
+)
+INSERT INTO XMLCalcReferences
+SELECT
+    loh.Object_UUID, 'LayoutObject', NULL, loh.Subrole,
+    loh.Calc_Hash, 'customfunction',
+    NULL,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    loh.File_Name
+FROM layout_obj_hashes loh
+JOIN DDR_Calculations d
+  ON loh.Calc_Hash = d.Calc_Hash
+ AND loh.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'CustomFunctionRef';
+
+-- A.5.3 PluginFunctionRef in LayoutObjects → PluginFunctionUsages
+WITH layout_obj_hashes AS (
+    SELECT
+        lo.Object_UUID,
+        lo.File_Name,
+        unnest(regexp_extract_all(lo.Object_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 1)) AS Calc_Hash,
+        unnest(regexp_extract_all(lo.Object_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 2)) AS Subrole
+    FROM LayoutObjects lo
+    WHERE lo.Object_XML LIKE '%DDRREF%'
+      AND lo.File_Name = (
+        SELECT regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+        ) FROM read_xml_objects(getvariable('fm_xml'),
+            maximum_file_size=getvariable('max_filesize'))
+      )
+)
+INSERT INTO PluginFunctionUsages
+SELECT
+    loh.Object_UUID, 'LayoutObject', NULL, loh.Subrole,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    loh.Calc_Hash,
+    loh.File_Name
+FROM layout_obj_hashes loh
+JOIN DDR_Calculations d
+  ON loh.Calc_Hash = d.Calc_Hash
+ AND loh.File_Name = d.File_Name
+WHERE d.Chunk_Type = 'PluginFunctionRef';
 
 
 -- ============================================

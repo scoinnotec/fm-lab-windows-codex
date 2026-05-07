@@ -12,6 +12,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), version
 
 ---
 
+## [0.6.4] — 2026-05-07
+
+XML import preprocessor: preserves line breaks in calculation code and tolerates invalid XML control characters.
+
+- Preprocessor integrated directly into `convert_fm_xml.sh`
+- Line-break preservation via sentinel `U+2028`: bypasses the `webbed` extension's whitespace collapse (`CleanTextContent`) so original CR/LF in CDATA payloads (Custom Functions, Calculated Fields, AutoEnter calcs, Script steps, Layout-Object formulas) survives the parse — sentinel is replaced back to LF inside `convert_xml.sql`
+- Stripping of XML 1.0 invalid C0 control characters (e.g. `Char(3)` embedded in FileMaker scripts) — adresses the `Invalid Input Error: contains invalid XML` abort
+- Upstream issue draft prepared for the `duckdb_webbed` maintainer — feature request for option to preserve internal whitespace
+- REST-API fix for DB close
+
+---
+
+## [0.6.3] — 2026-05-06
+
+Extended object reference parser: complete coverage of read/write accesses across calculations and plugin calls.
+
+- **Read accesses to fields** in addition to write accesses — full coverage of field references inside any calculation context
+- **Layout-object calculations** parsed as references: conditional formatting, hide formula, tooltip, placeholder, and visibility expressions now produce `displays_field` / `reads_variable` / `triggers_script` links
+- **CustomFunction call chains**: cross-references between calculations resolved via DDR chunks
+- **Plugin function calls** (e.g. MBS Plugin) registered as object references in `ObjectCatalog` / `ObjectLinks`
+- **Field → Layout** references for direct on-layout visibility analysis
+- Improved layout-box label resolution
+
+---
+
+## [0.6.2] — 2026-05-03
+
+Folder hierarchies as a first-class object type in the catalog.
+
+- New `Folder` object type in `ObjectCatalog`; folders for Scripts, Layouts, and CustomFunctions are registered alongside their leaf objects
+- Hierarchical parent/child relationships modeled in `ObjectLinks`
+- Dedicated REST API endpoint for folder structures, including type-specific validator and controller
+- Detail SQL template `object_details_folder.sql` for the folder view
+- New `list_with_folders.sql` custom template
+- Web frontend tree view (`FolderTree` / `TreeView` components): browseable folder hierarchy with collapsible nodes
+- follow-up optimizations and bugfixes on the folder-based navigation
+
+---
+
 ## [0.6.1] — 2026-04-29
 
 Service release: Bugfixes and optimizations.

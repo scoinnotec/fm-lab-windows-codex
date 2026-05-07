@@ -12,6 +12,7 @@ const htmlFormatter = require('./html.formatter');
 const markdownFormatter = require('./markdown.formatter');
 const contentFormatter = require('./content.formatter');
 const mermaidFormatter = require('./mermaid.formatter');
+const tokensFormatter = require('./tokens.formatter');
 
 /**
  * Formatter registry
@@ -27,6 +28,7 @@ const formatters = {
   markdown: markdownFormatter,
   content: contentFormatter,
   mermaid: mermaidFormatter,
+  tokens: tokensFormatter,
 };
 
 /**

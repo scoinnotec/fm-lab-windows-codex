@@ -18,9 +18,16 @@ const cache = new Map<string, { object: FMObject; references: GroupedReferences 
  * Parallel-fetches both endpoints and splits the flat reference array
  * into parent/child groups.
  */
+const EMPTY_REFS: GroupedReferences = {
+  parent: [],
+  child: [],
+  structuralParent: [],
+  structuralChild: [],
+};
+
 export const useObjectDetail = (uuid: string | undefined): UseObjectDetailResult => {
   const [object, setObject] = useState<FMObject | null>(null);
-  const [references, setReferences] = useState<GroupedReferences>({ parent: [], child: [] });
+  const [references, setReferences] = useState<GroupedReferences>(EMPTY_REFS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isFetchingRef = useRef(false);
@@ -43,21 +50,26 @@ export const useObjectDetail = (uuid: string | undefined): UseObjectDetailResult
     setError(null);
 
     try {
-      // Parallel fetch: object details + references
-      const [objectResponse, refsResponse] = await Promise.all([
+      // Parallel fetch: object details + operational refs + structural refs.
+      // Strukturelle Links (parent_folder, parent_object, parent_layout)
+      // landen sonst nicht im Default-Operational-Filter.
+      const [objectResponse, opRefsResponse, structRefsResponse] = await Promise.all([
         api.get({ uuid }),
-        api.references({ uuid, direction: 'all' }),
+        api.references({ uuid, direction: 'all', link_type: 'operational' }),
+        api.references({ uuid, direction: 'all', link_type: 'structural' }),
       ]);
 
       // Extract object data
       const objectData = objectResponse.data as FMObject;
 
-      // Split flat reference array into parent/child groups
-      // The API returns a flat array with a 'direction' discriminator field
-      const flatRefs = (refsResponse.data ?? []) as unknown as ReferenceItem[];
+      // Split flat reference arrays into parent/child groups
+      const opRefs = (opRefsResponse.data ?? []) as unknown as ReferenceItem[];
+      const structRefs = (structRefsResponse.data ?? []) as unknown as ReferenceItem[];
       const grouped: GroupedReferences = {
-        parent: flatRefs.filter(r => r.direction === 'parent'),
-        child: flatRefs.filter(r => r.direction === 'child'),
+        parent: opRefs.filter(r => r.direction === 'parent'),
+        child: opRefs.filter(r => r.direction === 'child'),
+        structuralParent: structRefs.filter(r => r.direction === 'parent'),
+        structuralChild: structRefs.filter(r => r.direction === 'child'),
       };
 
       // Cache the result
@@ -76,7 +88,7 @@ export const useObjectDetail = (uuid: string | undefined): UseObjectDetailResult
 
   useEffect(() => {
     setObject(null);
-    setReferences({ parent: [], child: [] });
+    setReferences(EMPTY_REFS);
     fetchData();
   }, [fetchData]);
 

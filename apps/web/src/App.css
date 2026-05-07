@@ -30,6 +30,44 @@
   background-color: #646cff22;
 }
 
+.app-mode-tabs {
+  display: flex;
+  gap: 0;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.app-mode-tabs .tab-button {
+  background: none;
+  border: 1px solid #2a2a2a;
+  border-left: none;
+  color: #888;
+  padding: 0.45rem 1.25rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: color 0.2s, background-color 0.2s, border-color 0.2s;
+}
+
+.app-mode-tabs .tab-button:first-child {
+  border-left: 1px solid #2a2a2a;
+  border-radius: 4px 0 0 4px;
+}
+
+.app-mode-tabs .tab-button:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.app-mode-tabs .tab-button:hover {
+  color: #ccc;
+  background-color: #2a2a2a;
+}
+
+.app-mode-tabs .tab-button.active {
+  color: #646cff;
+  border-color: #646cff;
+  background-color: #1a1a3a;
+}
+
 .search-form {
   margin-bottom: 0.75rem;
   padding: 0.75rem 1rem;
@@ -431,5 +469,25 @@ button:disabled {
 
   .group-header-count {
     color: #888;
+  }
+
+  .app-mode-tabs .tab-button {
+    border-color: #e0e0e0;
+    color: #666;
+  }
+
+  .app-mode-tabs .tab-button:first-child {
+    border-left-color: #e0e0e0;
+  }
+
+  .app-mode-tabs .tab-button:hover {
+    color: #333;
+    background-color: #f0f0f0;
+  }
+
+  .app-mode-tabs .tab-button.active {
+    color: #646cff;
+    border-color: #646cff;
+    background-color: #eef0ff;
   }
 }

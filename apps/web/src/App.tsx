@@ -3,7 +3,7 @@ import { Routes, Route, useNavigate, useSearchParams, Link } from 'react-router-
 import { api } from './api/client';
 import { OBJECT_TYPES } from '@packages/shared/constants';
 import { useInfiniteSearch, useDebounce, useScrollRestore } from './hooks';
-import { VirtualList, DetailView, SearchOptions } from './components';
+import { VirtualList, DetailView, SearchOptions, FolderTree, type FolderTreeSubtype } from './components';
 import { SettingsView } from './views/SettingsView';
 import type { SortOption, GroupOption, VirtualListRow, FMObject } from './types';
 import './App.css';
@@ -16,6 +16,28 @@ type FileInfo = {
   Import_Timestamp?: string;
 };
 
+type ViewMode = 'search' | 'tree';
+
+const TREE_SUBTYPE_LABELS: Record<FolderTreeSubtype, string> = {
+  ScriptCatalog: 'Scripts',
+  Layouts: 'Layouts',
+  CustomFunctionsCatalog: 'Custom Functions',
+};
+
+const TREE_SUBTYPE_URL: Record<FolderTreeSubtype, string> = {
+  ScriptCatalog: 'script',
+  Layouts: 'layout',
+  CustomFunctionsCatalog: 'customfunction',
+};
+
+function urlToSubtype(value: string | null): FolderTreeSubtype {
+  switch (value) {
+    case 'layout':         return 'Layouts';
+    case 'customfunction': return 'CustomFunctionsCatalog';
+    default:               return 'ScriptCatalog';
+  }
+}
+
 function SearchView() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -23,9 +45,11 @@ function SearchView() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Initialize filter states from URL params (for deep linking & back-navigation)
+  const [mode, setMode] = useState<ViewMode>(searchParams.get('mode') === 'tree' ? 'tree' : 'search');
   const [searchName, setSearchName] = useState(searchParams.get('q') || '');
   const [selectedFile, setSelectedFile] = useState<string>(searchParams.get('file') || '');
   const [objectType, setObjectType] = useState<string>(searchParams.get('type') || '');
+  const [treeSubtype, setTreeSubtype] = useState<FolderTreeSubtype>(urlToSubtype(searchParams.get('subtype')));
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [sortBy, setSortBy] = useState<SortOption>((searchParams.get('sort') as SortOption) || 'standard');
   const [groupBy, setGroupBy] = useState<GroupOption>((searchParams.get('group') as GroupOption) || 'none');
@@ -36,26 +60,34 @@ function SearchView() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const wasFocusedRef = useRef(false);
 
-  // Debounce search input for Search-as-you-type (300ms delay)
+  // Debounce search/filter input (300ms delay)
   const debouncedSearchName = useDebounce(searchName, 300);
 
-  // Use infinite search hook
+  // Use infinite search hook (only relevant in 'search' mode, but called unconditionally
+  // to keep hook order stable; the result is simply ignored when mode === 'tree').
   const { items, loading, loadingMore, hasMore, totalCount, error, loadMore } = useInfiniteSearch({
     searchName: debouncedSearchName || '*',
     selectedFile,
     objectType,
   });
 
-  // Sync search params to URL (replace to avoid polluting history)
+  // Sync filter state to URL (replace to avoid polluting history)
   useEffect(() => {
     const params = new URLSearchParams();
-    if (debouncedSearchName) params.set('q', debouncedSearchName);
-    if (selectedFile) params.set('file', selectedFile);
-    if (objectType) params.set('type', objectType);
-    if (sortBy !== 'standard') params.set('sort', sortBy);
-    if (groupBy !== 'none') params.set('group', groupBy);
+    if (mode === 'tree') {
+      params.set('mode', 'tree');
+      params.set('subtype', TREE_SUBTYPE_URL[treeSubtype]);
+      if (selectedFile) params.set('file', selectedFile);
+      if (debouncedSearchName) params.set('q', debouncedSearchName);
+    } else {
+      if (debouncedSearchName) params.set('q', debouncedSearchName);
+      if (selectedFile) params.set('file', selectedFile);
+      if (objectType) params.set('type', objectType);
+      if (sortBy !== 'standard') params.set('sort', sortBy);
+      if (groupBy !== 'none') params.set('group', groupBy);
+    }
     setSearchParams(params, { replace: true });
-  }, [debouncedSearchName, selectedFile, objectType, sortBy, groupBy, setSearchParams]);
+  }, [mode, treeSubtype, debouncedSearchName, selectedFile, objectType, sortBy, groupBy, setSearchParams]);
 
   // Load available files on mount
   useEffect(() => {
@@ -82,16 +114,16 @@ function SearchView() {
   // Restore scroll position when items are loaded (after back-navigation)
   const hasRestoredRef = useRef(false);
   useEffect(() => {
-    if (items.length > 0 && !hasRestoredRef.current) {
+    if (mode === 'search' && items.length > 0 && !hasRestoredRef.current) {
       hasRestoredRef.current = true;
       restoreScrollPosition('search-list', scrollContainerRef.current);
     }
-  }, [items.length, restoreScrollPosition]);
+  }, [mode, items.length, restoreScrollPosition]);
 
   // Reset restore flag when search params change
   useEffect(() => {
     hasRestoredRef.current = false;
-  }, [debouncedSearchName, selectedFile, objectType]);
+  }, [debouncedSearchName, selectedFile, objectType, mode, treeSubtype]);
 
   // Reset expanded groups when grouping changes (all collapsed by default)
   useEffect(() => {
@@ -173,6 +205,15 @@ function SearchView() {
     navigate(`/object/${uuid}`);
   }, [navigate, saveScrollPosition]);
 
+  const isTreeMode = mode === 'tree';
+  const filterLabel = isTreeMode ? 'Filter:' : 'Suche nach Name:';
+  const filterPlaceholder = isTreeMode
+    ? 'Filtere die Hierarchie nach Namen'
+    : 'z.B. Import, Email (leer = alle Objekte)';
+  const filterTitle = isTreeMode
+    ? 'Items mit diesem Text im Namen werden hervorgehoben (inkl. Eltern-Folder)'
+    : 'Wildcard * fuer beliebige Zeichen (z.B. *Import, Email*). Leer lassen fuer alle Objekte.';
+
   return (
     <div className="app">
       <div className="app-title-row">
@@ -185,10 +226,31 @@ function SearchView() {
         </Link>
       </div>
 
+      <nav className="app-mode-tabs" role="tablist" aria-label="Ansichts-Modus">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'search'}
+          className={`tab-button${mode === 'search' ? ' active' : ''}`}
+          onClick={() => setMode('search')}
+        >
+          Suche
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'tree'}
+          className={`tab-button${mode === 'tree' ? ' active' : ''}`}
+          onClick={() => setMode('tree')}
+        >
+          Hierarchie
+        </button>
+      </nav>
+
       <div className="search-form">
         <div className="form-row">
           <div className="form-group">
-            <label htmlFor="search-name">Suche nach Name:</label>
+            <label htmlFor="search-name">{filterLabel}</label>
             <input
               ref={searchInputRef}
               id="search-name"
@@ -203,8 +265,8 @@ function SearchView() {
               }}
               onFocus={() => { wasFocusedRef.current = true; }}
               onBlur={() => { wasFocusedRef.current = false; }}
-              placeholder="z.B. Import, Email (leer = alle Objekte)"
-              title="Wildcard * für beliebige Zeichen (z.B. *Import, Email*). Leer lassen für alle Objekte."
+              placeholder={filterPlaceholder}
+              title={filterTitle}
             />
           </div>
 
@@ -224,33 +286,50 @@ function SearchView() {
             </select>
           </div>
 
-          <div className="form-group">
-            <label htmlFor="object-type">Objekttyp:</label>
-            <select
-              id="object-type"
-              value={objectType}
-              onChange={(e) => setObjectType(e.target.value)}
-            >
-              <option value="">Alle Typen</option>
-              {OBJECT_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-          </div>
+          {isTreeMode ? (
+            <div className="form-group">
+              <label htmlFor="tree-subtype">Typ:</label>
+              <select
+                id="tree-subtype"
+                value={treeSubtype}
+                onChange={(e) => setTreeSubtype(e.target.value as FolderTreeSubtype)}
+              >
+                {(Object.keys(TREE_SUBTYPE_LABELS) as FolderTreeSubtype[]).map(st => (
+                  <option key={st} value={st}>{TREE_SUBTYPE_LABELS[st]}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="form-group">
+              <label htmlFor="object-type">Objekttyp:</label>
+              <select
+                id="object-type"
+                value={objectType}
+                onChange={(e) => setObjectType(e.target.value)}
+              >
+                <option value="">Alle Typen</option>
+                {OBJECT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
-          <button
-            className="search-options-toggle"
-            onClick={() => setOptionsOpen(prev => !prev)}
-            aria-expanded={optionsOpen}
-            type="button"
-          >
-            {optionsOpen ? 'Optionen \u25B4' : 'Optionen...'}
-          </button>
+          {!isTreeMode && (
+            <button
+              className="search-options-toggle"
+              onClick={() => setOptionsOpen(prev => !prev)}
+              aria-expanded={optionsOpen}
+              type="button"
+            >
+              {optionsOpen ? 'Optionen ▴' : 'Optionen...'}
+            </button>
+          )}
         </div>
 
-        {optionsOpen && (
+        {!isTreeMode && optionsOpen && (
           <SearchOptions
             sortBy={sortBy}
             groupBy={groupBy}
@@ -260,15 +339,15 @@ function SearchView() {
         )}
       </div>
 
-      {/* Error message */}
-      {error && (
+      {/* Error message (search mode only) */}
+      {!isTreeMode && error && (
         <div className="error-message">
           {error}
         </div>
       )}
 
-      {/* Virtual List with Infinite Scrolling */}
-      {!error && (
+      {/* Search mode: Virtual list */}
+      {!isTreeMode && !error && (
         <VirtualList
           rows={processedRows}
           itemCount={items.length}
@@ -282,11 +361,20 @@ function SearchView() {
         />
       )}
 
-      {/* Initial loading state */}
-      {loading && items.length === 0 && (
+      {/* Search mode: Initial loading state */}
+      {!isTreeMode && loading && items.length === 0 && (
         <div className="virtual-list-empty">
           Lade Objekte...
         </div>
+      )}
+
+      {/* Tree mode: Folder tree */}
+      {isTreeMode && (
+        <FolderTree
+          subtype={treeSubtype}
+          file={selectedFile || undefined}
+          filter={debouncedSearchName}
+        />
       )}
     </div>
   );

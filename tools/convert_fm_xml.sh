@@ -29,6 +29,7 @@
 #   2 - UTF-8 conversion failed
 #   3 - DuckDB conversion failed
 #   4 - Unsupported XML format (e.g. legacy FMDynamicTemplate)
+#   5 - XML preprocessing failed
 
 # Constants
 PROJECT_ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd))"
@@ -207,6 +208,45 @@ process_single_file() {
         echo "  WARNING: Skipped — could not detect XML root element (expected FMSaveAsXML)"
         return 4
     fi
+
+    # 5b. Preprocess XML before read_xml. Two transformations:
+    #
+    #   (a) CR (0x0D) -> DEL (0x7F): FileMaker uses CR as line terminator in
+    #       Calculation CDATA. The webbed extension's CleanTextContent()
+    #       collapses ASCII whitespace runs (incl. CR/LF/TAB) in element text
+    #       to a single space, destroying line structure. DEL is XML 1.0
+    #       valid and not ASCII whitespace, so it survives extraction. The
+    #       matching replace(col, chr(127), chr(10)) lives in convert_xml.sql.
+    #
+    #   (b) Strip XML 1.0 invalid C0 control bytes (0x00-0x08, 0x0B, 0x0C,
+    #       0x0E-0x1F). FileMaker scripts can contain Char(3) etc., which
+    #       libxml2 rejects with "Invalid Input Error: ... contains invalid
+    #       XML". Tab (0x09) and LF (0x0A) are explicitly preserved; CR
+    #       (0x0D) is already substituted to DEL by step (a) above.
+    #
+    # tr is byte-oriented but UTF-8 safe here: UTF-8 continuation bytes are
+    # always in the 0x80-0xBF range, never 0x0D or any other C0 byte.
+    local PREPROCESSED_FILE="${XML_FILE%.xml}_clean.xml"
+    local PRE_INPUT="$TEMP_DIR/$XML_FILE"
+    local PRE_OUTPUT="$TEMP_DIR/$PREPROCESSED_FILE"
+
+    local PRE_INPUT_SIZE
+    PRE_INPUT_SIZE=$(wc -c < "$PRE_INPUT" | tr -d ' ')
+    local PRE_CR_COUNT
+    PRE_CR_COUNT=$(tr -dc '\r' < "$PRE_INPUT" | wc -c | tr -d ' ')
+
+    if ! tr '\r' '\177' < "$PRE_INPUT" \
+            | tr -d '\000-\010\013\014\016-\037' > "$PRE_OUTPUT"; then
+        echo "  ERROR: XML preprocessing failed"
+        return 5
+    fi
+
+    local PRE_OUTPUT_SIZE
+    PRE_OUTPUT_SIZE=$(wc -c < "$PRE_OUTPUT" | tr -d ' ')
+    local PRE_STRIPPED=$((PRE_INPUT_SIZE - PRE_OUTPUT_SIZE))
+
+    echo "  Preprocessed: replaced_cr=$PRE_CR_COUNT stripped_invalid=$PRE_STRIPPED"
+    XML_FILE="$PREPROCESSED_FILE"
 
     # 6. Create temporary SQL script with correct filename.
     # Das SQL-Template liest FM_XML_DIR per getenv() — wir setzen sie unten beim

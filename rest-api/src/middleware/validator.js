@@ -29,6 +29,19 @@ const schemas = {
     debug: Joi.boolean().default(false),
   }),
 
+  // GET /api/list-with-folders - Hierarchische Liste (Scripts/Layouts/CFs) mit nesting_level.
+  // Kein limit: Tree muss komplett geliefert werden, sonst bricht die Folder-Stack-Konsistenz.
+  listWithFolders: Joi.object({
+    type: Joi.string()
+      .lowercase()
+      .valid('script', 'layout', 'customfunction')
+      .required(),
+    file: Joi.string().optional(),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
   // GET /api/count
   count: Joi.object({
     type: Joi.string().lowercase().valid(...OBJECT_TYPES.map(t => t.toLowerCase())).optional(),
@@ -82,6 +95,14 @@ const schemas = {
   getDetails: Joi.object({
     uuid: Joi.string().required(),
     format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/get-calc - Standalone calculation by hash (token format only)
+  getCalc: Joi.object({
+    hash: Joi.string().required(),
+    format: Joi.string().lowercase().valid('tokens', 'json').default('tokens'),
     meta: Joi.boolean().default(false),
     debug: Joi.boolean().default(false),
   }),

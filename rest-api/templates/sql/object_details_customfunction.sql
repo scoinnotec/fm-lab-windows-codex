@@ -78,16 +78,12 @@ SELECT content FROM (
 
   UNION ALL
 
-  -- DDR dependency chunks (if available)
+  -- DDR dependency chunks (if available) — header only; chunk list omitted
   SELECT 8, 0, '' WHERE (SELECT COUNT(*) FROM ddr_chunks) > 0
   UNION ALL
   SELECT 8, 1,
     '--- DDR Dependencies --- (' || CAST((SELECT COUNT(*) FROM ddr_chunks) AS VARCHAR) || ' chunks)'
   WHERE (SELECT COUNT(*) FROM ddr_chunks) > 0
-  UNION ALL
-  SELECT 9, CAST(dc.Chunk_Index AS INTEGER),
-    '  [' || dc.Chunk_Type || '] ' || dc.Chunk_Content
-  FROM ddr_chunks dc
 
   UNION ALL
 

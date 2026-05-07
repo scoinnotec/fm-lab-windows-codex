@@ -6,12 +6,13 @@
 -- @version: 1.0
 -- @tags: variables, variable-usages, dependencies, cross-reference
 -- @note: Use generic parameters: uuid, name, file (consistent with REST API)
--- @note: UUID is md5(Variable_Name || '::' || File_Name)
+-- @note: UUID is md5(Variable_Scope || '::' || Scope_Anchor || '::' || Variable_Name)
 
 WITH var_match AS (
     SELECT
         vc.Variable_Name,
         vc.Variable_Scope,
+        vc.Scope_Anchor,
         vc.Display_Name,
         vc.Normalized_Name,
         vc.Set_Count,
@@ -27,7 +28,7 @@ WITH var_match AS (
     WHERE (
         -- Match by UUID (preferred)
         (getvariable('uuid') IS NOT NULL
-         AND md5(vc.Variable_Name || '::' || vc.File_Name) = getvariable('uuid'))
+         AND md5(vc.Variable_Scope || '::' || vc.Scope_Anchor || '::' || vc.Variable_Name) = getvariable('uuid'))
         OR
         -- Match by Name (with optional file filter)
         (getvariable('name') IS NOT NULL
@@ -48,8 +49,10 @@ usages AS (
         vu.Source,
         vu.File_Name
     FROM VariableUsages vu
-    JOIN var_match vm ON vu.Variable_Name = vm.Variable_Name
-        AND vu.Variable_Scope = vm.Variable_Scope
+    JOIN var_match vm
+        ON vu.Variable_Name  = vm.Variable_Name
+       AND vu.Variable_Scope = vm.Variable_Scope
+       AND vu.Scope_Anchor   = vm.Scope_Anchor
     ORDER BY vu.Usage_Type DESC, vu.Context_Type, vu.Context_Name, vu.Step_Index
 ),
 header AS (

@@ -21,10 +21,16 @@ export interface ReferenceItem {
 
 /**
  * Grouped references after client-side splitting.
+ * Operational links (Script→Field, LayoutObject→Script, …) und strukturelle
+ * Links (parent_folder, parent_object, parent_layout, …) werden parallel
+ * geladen und getrennt dargestellt, damit Folder-Hierarchien sichtbar werden,
+ * ohne den operationalen Kontext zu überladen.
  */
 export interface GroupedReferences {
   parent: ReferenceItem[];
   child: ReferenceItem[];
+  structuralParent: ReferenceItem[];
+  structuralChild: ReferenceItem[];
 }
 
 /**

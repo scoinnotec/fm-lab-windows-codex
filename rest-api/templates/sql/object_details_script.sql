@@ -60,7 +60,19 @@ SELECT
     repeat('  ', CAST(GREATEST(0, base_depth + depth_change_self) AS BIGINT)),
     CASE
       WHEN (SELECT Has_DDR_INFO FROM XMLMetadata LIMIT 1) = 'True'
-      THEN COALESCE(d.Step_Text, sd.Step_Name)
+      THEN COALESCE(
+        -- FileMaker's script editor renders these keywords without the bare
+        -- "[  ]" suffix that the DDR export still produces. Strip it so the
+        -- rendered text matches what developers see in FileMaker itself.
+        CASE
+          WHEN sd.Step_Name IN ('Else','End If','End Loop',
+                                'Commit Transaction','Revert Transaction','Open Transaction')
+               AND d.Step_Text IS NOT NULL
+          THEN regexp_replace(d.Step_Text, '\s*\[\s*\]\s*$', '')
+          ELSE d.Step_Text
+        END,
+        sd.Step_Name
+      )
       ELSE sd.Step_Name
     END
   ) as content

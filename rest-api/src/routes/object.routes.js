@@ -14,8 +14,14 @@ router.get('/get', validate('get'), objectController.get);
 // GET /api/get-details - Get object details by UUID (type-specific template dispatch)
 router.get('/get-details', validate('getDetails'), objectController.getDetails);
 
+// GET /api/get-calc - Standalone calculation by hash (tokens format)
+router.get('/get-calc', validate('getCalc'), objectController.getCalc);
+
 // GET /api/list - List objects by type
 router.get('/list', validate('list'), objectController.list);
+
+// GET /api/list-with-folders - Hierarchical list (Scripts/Layouts/CFs) with nesting_level
+router.get('/list-with-folders', validate('listWithFolders'), objectController.listWithFolders);
 
 // GET /api/count - Count objects
 router.get('/count', validate('count'), objectController.count);

@@ -27,7 +27,20 @@ const OBJECT_TYPES = [
   'ExternalDataSource',
   'BaseDirectory',
   'Variable',
+  'ScriptFolder',
+  'LayoutFolder',
 ];
+
+/**
+ * Folder Pseudo-Types
+ * Folder ist im Datenmodell ein einziger Object_Type ('Folder'), aber im API-Sprachgebrauch
+ * trennen wir nach Source_Table, damit Konsumenten zwischen Script-/Layout-Folder unterscheiden
+ * können (siehe project/prd_webclient_treeview.md, Verfeinerung 2).
+ */
+const FOLDER_PSEUDO_TYPES = {
+  'ScriptFolder': 'ScriptCatalog',
+  'LayoutFolder': 'Layouts',
+};
 
 /**
  * Mapping from lowercase type to PascalCase (for database queries)
@@ -54,6 +67,8 @@ const OBJECT_TYPE_MAP = {
   'externaldatasource': 'ExternalDataSource',
   'basedirectory': 'BaseDirectory',
   'variable': 'Variable',
+  'scriptfolder': 'ScriptFolder',
+  'layoutfolder': 'LayoutFolder',
 };
 
 /**
@@ -89,6 +104,7 @@ const OUTPUT_FORMATS = {
   CONTENT: 'content',
   MERMAID: 'mermaid',         // HTML-Wrapper mit Mermaid.js
   MERMAID_RAW: 'mermaid-raw', // Nur Mermaid-Code
+  TOKENS: 'tokens',           // Strukturierte Token-Sequenz für Editor-Integration
 };
 
 /**
@@ -150,7 +166,10 @@ const DETAIL_TEMPLATE_MAP = {
   'BaseTable':      'object_details_basetable',
   'CustomFunction': 'object_details_customfunction',
   'ValueList':      'object_details_valuelist',
-  'Variable':            'object_details_variable',
+  'Variable':       'object_details_variable',
+  'Folder':         'object_details_folder',
+  'ScriptFolder':   'object_details_folder',
+  'LayoutFolder':   'object_details_folder',
 };
 
 /**
@@ -167,6 +186,7 @@ const HTTP_STATUS = {
 module.exports = {
   OBJECT_TYPES,
   OBJECT_TYPE_MAP,
+  FOLDER_PSEUDO_TYPES,
   DETAIL_TEMPLATE_MAP,
   LINK_TYPES,
   REFERENCE_DIRECTIONS,

@@ -2,7 +2,28 @@ const db = require('../config/database');
 const { createError } = require('../middleware/error-handler');
 const { buildWhereClause, buildGroupByClause } = require('../utils/query-builder');
 const environment = require('../config/environment');
-const { OBJECT_TYPE_MAP, DETAIL_TEMPLATE_MAP } = require('../config/constants');
+const { OBJECT_TYPE_MAP, DETAIL_TEMPLATE_MAP, FOLDER_PSEUDO_TYPES } = require('../config/constants');
+
+/**
+ * Resolve a possibly-pseudo Object_Type into a SQL filter fragment + params.
+ * For Folder-Pseudo-Types ('ScriptFolder', 'LayoutFolder') the filter constrains
+ * Object_Type='Folder' AND Source_Table=<mapped>. For all other types it's a plain
+ * Object_Type=? filter.
+ */
+function buildTypeFilter(dbType) {
+  if (FOLDER_PSEUDO_TYPES[dbType]) {
+    return {
+      sql: 'oc.Object_Type = ? AND oc.Source_Table = ?',
+      sqlNoAlias: 'Object_Type = ? AND Source_Table = ?',
+      params: ['Folder', FOLDER_PSEUDO_TYPES[dbType]],
+    };
+  }
+  return {
+    sql: 'oc.Object_Type = ?',
+    sqlNoAlias: 'Object_Type = ?',
+    params: [dbType],
+  };
+}
 const templateService = require('./template.service');
 
 /**
@@ -61,6 +82,7 @@ async function listObjects(filters) {
 
     // Normalize type to PascalCase for database
     const dbType = OBJECT_TYPE_MAP[type] || type;
+    const typeFilter = buildTypeFilter(dbType);
 
     // Build query with reference count
     let sql = `
@@ -70,10 +92,10 @@ async function listObjects(filters) {
       FROM ObjectCatalog oc
       LEFT JOIN ObjectLinks ol ON oc.Object_UUID = ol.Source_UUID
         AND ol.Link_Type = 'operational'
-      WHERE oc.Object_Type = ?
+      WHERE ${typeFilter.sql}
     `;
 
-    const params = [dbType];
+    const params = [...typeFilter.params];
 
     if (file) {
       sql += ' AND oc.File_Name = ?';
@@ -132,8 +154,9 @@ async function countObjects(options) {
       conditions.push("Object_Type NOT IN ('DDR_ScriptStep', 'DDR_Calculation')");
 
       if (dbType) {
-        conditions.push('Object_Type = ?');
-        params.push(dbType);
+        const typeFilter = buildTypeFilter(dbType);
+        conditions.push(typeFilter.sqlNoAlias);
+        params.push(...typeFilter.params);
       }
       if (file) {
         conditions.push('File_Name = ?');
@@ -154,8 +177,9 @@ async function countObjects(options) {
       conditions.push("Object_Type NOT IN ('DDR_ScriptStep', 'DDR_Calculation')");
 
       if (dbType) {
-        conditions.push('Object_Type = ?');
-        params.push(dbType);
+        const typeFilter = buildTypeFilter(dbType);
+        conditions.push(typeFilter.sqlNoAlias);
+        params.push(...typeFilter.params);
       }
       if (file) {
         conditions.push('File_Name = ?');
@@ -199,8 +223,9 @@ async function searchObjects(searchOptions) {
     const params = [name];
 
     if (dbType) {
-      sql += ' AND Object_Type = ?';
-      params.push(dbType);
+      const typeFilter = buildTypeFilter(dbType);
+      sql += ' AND ' + typeFilter.sqlNoAlias;
+      params.push(...typeFilter.params);
     }
 
     if (file) {
@@ -247,8 +272,9 @@ async function countSearchResults(searchOptions) {
     const params = [name];
 
     if (dbType) {
-      sql += ' AND Object_Type = ?';
-      params.push(dbType);
+      const typeFilter = buildTypeFilter(dbType);
+      sql += ' AND ' + typeFilter.sqlNoAlias;
+      params.push(...typeFilter.params);
     }
 
     if (file) {

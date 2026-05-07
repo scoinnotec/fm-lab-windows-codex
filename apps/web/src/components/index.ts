@@ -10,3 +10,5 @@ export { SearchOptions } from './SearchOptions';
 export { DependencyGraph } from './DependencyGraph';
 export { TypeDetail } from './TypeDetail';
 export { ObjectDetail } from './ObjectDetail';
+export { FolderTree } from './FolderTree';
+export type { FolderTreeSubtype } from './FolderTree';
