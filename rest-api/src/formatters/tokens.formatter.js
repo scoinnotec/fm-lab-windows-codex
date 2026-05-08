@@ -10,6 +10,8 @@
  * The caller decides which shape via options.kind.
  */
 
+const { isContainerPlugin } = require('../services/plugin-token-registry');
+
 const CHUNK_TYPE_MAP = {
   NoRef: 'text',
   FunctionRef: 'function',
@@ -21,6 +23,12 @@ const CHUNK_TYPE_MAP = {
 };
 
 const CHUNK_RE = /^<Chunk[^>]*>([\s\S]*)<\/Chunk>$/;
+
+// MBS-Style Container-Plugin: erstes Argument ist ein quoted String mit dem
+// fachlichen Funktionsnamen. Pattern matcht den ersten doppelt-quoted String
+// nach optionalem Whitespace und der öffnenden Klammer im Folge-NoRef-Chunk.
+// Bsp:  '( "List.AddPrefix" ; '  →  'List.AddPrefix'
+const FIRST_QUOTED_ARG_RE = /\(\s*"([^"]+)"/;
 
 // FieldRef chunks contain nested XML with FieldReference + TableOccurrenceReference.
 const FIELD_REF_RE = /<FieldReference[^>]*\bname="([^"]*)"[^>]*\bUUID="([^"]*)"/;
@@ -59,8 +67,13 @@ function decodeXmlEntities(s) {
  * Chunk wrapper. FieldRef is special: its inner XML carries field name, table
  * occurrence name and field UUID — we surface a "TO::Field" content string
  * plus the resolved UUID.
+ *
+ * Optionale Parameter `idx` und `allChunks` werden für die `subFunction`-
+ * Auflösung von MBS-Style Container-Plugins genutzt (PRD prd_rest_api_plugin_docs_subfunction.md).
+ * Werden sie weggelassen (z.B. von Test-Aufrufern), bleibt das Verhalten für
+ * pluginFunction-Tokens identisch zur v1 — kein `subFunction`-Feld.
  */
-function tokenFromChunk(chunk) {
+function tokenFromChunk(chunk, idx, allChunks) {
   const dbType = chunk.chunk_type;
   const apiType = CHUNK_TYPE_MAP[dbType] || 'text';
   const inner = stripChunkWrap(chunk.chunk_content);
@@ -88,16 +101,92 @@ function tokenFromChunk(chunk) {
     tok.scope = content.startsWith('$$') ? 'global' : 'local';
   }
 
+  // Container-Plugin (MBS): den fachlichen Funktionsnamen aus dem Folge-NoRef-
+  // Chunk extrahieren. Achtung — die DDR-Chunk-Reihenfolge ist nicht streng
+  // linear (siehe Beobachtungen in convert_xml.sql / MBS_SubnameMap), deshalb
+  // versuchen wir zuerst den direkten Nachbarn (idx+1) und fallen auf den
+  // direkten Vorgänger (idx-1) zurück. Bei Multi-MBS-Calcs ist das nicht 100%
+  // robust — der zuverlässige Pfad läuft über `lines[].refs.subFunction`, das
+  // server-seitig per ROW_NUMBER-Mapping aufgelöst wird (siehe SQL-Pipeline).
+  if (apiType === 'pluginFunction' && isContainerPlugin(content) && Array.isArray(allChunks)) {
+    const sub = extractSubFunctionFromNeighbors(idx, allChunks);
+    if (sub) tok.subFunction = sub;
+  }
+
   return tok;
 }
 
+/**
+ * Sucht den fachlichen MBS-Funktionsnamen in den Nachbar-NoRef-Chunks. Die
+ * Calc-Engine schreibt den Aufruf-Token (`MBS`) und den ersten Argument-NoRef
+ * `( "Foo.Bar"; ` direkt nebeneinander, allerdings nicht immer in derselben
+ * Richtung. Wir versuchen idx+1 zuerst (häufigster Fall: prefix), dann idx-1
+ * (postfix-ähnliche Notation).
+ */
+function extractSubFunctionFromNeighbors(idx, allChunks) {
+  if (typeof idx !== 'number' || !allChunks) return null;
+  for (const offset of [1, -1]) {
+    const cand = allChunks[idx + offset];
+    if (!cand || cand.chunk_type !== 'NoRef') continue;
+    const inner = stripChunkWrap(cand.chunk_content);
+    const m = FIRST_QUOTED_ARG_RE.exec(inner);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 function formatScript(rows, { object, refs }) {
+  // Dedup pro Zeile (PRD prd_rest_api_token_extended_infos.md §5.5):
+  //   - Variables:       (type, name, scope, usage) — Set/Read sind unterschiedliche Refs
+  //   - Fields:          (type, name, table) — gleiches Feld via unterschiedlicher TO = unterschiedliche Refs
+  //   - PluginFunctions: (type, name, subFunction) — zwei MBS-Aufrufe mit unter-
+  //                      schiedlicher subFunction in derselben Step-Calc bleiben
+  //                      eigenständige Refs (PRD prd_rest_api_plugin_docs_subfunction.md §6).
+  //   - Andere:          (type, name)
+  // Step-Refs (source_priority=0) kommen vor Calc-Refs durch ORDER BY im Template
+  // — first-wins-Semantik sorgt dafür, dass Step-XML-Refs gewinnen.
   const refsByLine = {};
+  const seenByLine = {};
   if (Array.isArray(refs)) {
     for (const r of refs) {
-      const key = r.line_index;
-      if (!refsByLine[key]) refsByLine[key] = [];
-      refsByLine[key].push({ type: r.type, name: r.name, uuid: r.uuid });
+      const slot = (refsByLine[r.line_index] ??= []);
+      const seen = (seenByLine[r.line_index] ??= new Set());
+
+      let dedupKey;
+      if (r.type === 'variable') {
+        dedupKey = `${r.type}|${r.name}|${r.variable_scope ?? ''}|${r.variable_usage ?? ''}`;
+      } else if (r.type === 'pluginFunction') {
+        dedupKey = `${r.type}|${r.name}|${r.sub_function ?? ''}`;
+      } else if (r.to_name) {
+        dedupKey = `${r.type}|${r.name}|${r.to_name}`;
+      } else {
+        dedupKey = `${r.type}|${r.name}`;
+      }
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+
+      const entry = { type: r.type, name: r.name };
+      if (r.uuid)            entry.uuid      = r.uuid;
+      if (r.field_file)      entry.file      = r.field_file;
+      if (r.to_name)         entry.table     = r.to_name;
+      if (r.field_basetable) entry.baseTable = r.field_basetable;
+      // crossFile/dataSource für Field-, Script- und tableOccurrence-Refs.
+      // tableOccurrence kommt aus GTRR (PRD prd_rest_api_token_gtrr.md §4.4):
+      // ein Sprung zu einer TO mit Cross-File-DataSource ist semantisch ein
+      // dateiübergreifender Navigations-Sprung. Variables/PluginFunctions haben
+      // kein Cross-File-Konzept.
+      if ((r.type === 'field' || r.type === 'script' || r.type === 'tableOccurrence') && r.cross_file) {
+        entry.crossFile = true;
+        if (r.data_source) entry.dataSource = r.data_source;
+      }
+      if (r.variable_scope) entry.scope = r.variable_scope;
+      if (r.variable_usage) entry.usage = r.variable_usage;
+      // subFunction (PRD prd_rest_api_plugin_docs_subfunction.md §2.2):
+      // fachlicher Funktionsname für Container-Plugins (heute: MBS).
+      if (r.type === 'pluginFunction' && r.sub_function) {
+        entry.subFunction = r.sub_function;
+      }
+      slot.push(entry);
     }
   }
 
@@ -165,12 +254,10 @@ function formatCustomFunction(rows, { object }) {
     file: head.object_file || object.file,
   };
 
-  const tokens = rows
+  const chunkRows = rows
     .filter(r => r.chunk_index !== null && r.chunk_index !== undefined)
-    .map(r => tokenFromChunk({
-      chunk_type: r.chunk_type,
-      chunk_content: r.chunk_content,
-    }));
+    .map(r => ({ chunk_type: r.chunk_type, chunk_content: r.chunk_content }));
+  const tokens = chunkRows.map((c, i, arr) => tokenFromChunk(c, i, arr));
 
   const plainText = head.plain_text != null
     ? head.plain_text
@@ -186,10 +273,11 @@ function formatCustomFunction(rows, { object }) {
 }
 
 function formatCalculation(rows, { object }) {
-  const tokens = (rows || []).map(r => tokenFromChunk({
+  const chunkRows = (rows || []).map(r => ({
     chunk_type: r.chunk_type,
     chunk_content: r.chunk_content,
   }));
+  const tokens = chunkRows.map((c, i, arr) => tokenFromChunk(c, i, arr));
 
   return {
     kind: 'calculation',

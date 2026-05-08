@@ -47,6 +47,15 @@ const environment = {
     vaultPath: process.env.OBSIDIAN_VAULT_PATH || null,
   },
 
+  // Plugin-Funktions-Dokumentation (MBS, künftig weitere Quellen)
+  // Pfade relativ zur rest-api/ — Default zeigt auf docs/mbs/ im Projekt-Root.
+  pluginDocs: {
+    mbsPath: process.env.PLUGIN_DOCS_MBS_PATH || '../docs/mbs',
+    cacheTTL: parseInt(process.env.PLUGIN_DOCS_CACHE_TTL_MS) || 3600000, // 1h
+    cacheMaxDocs: parseInt(process.env.PLUGIN_DOCS_CACHE_MAX_DOCS) || 500,
+    cacheMaxPaths: parseInt(process.env.PLUGIN_DOCS_CACHE_MAX_PATHS) || 1000,
+  },
+
   // API Configuration
   api: {
     defaultLimit: parseInt(process.env.DEFAULT_LIMIT) || 100,

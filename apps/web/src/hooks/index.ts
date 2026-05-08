@@ -6,3 +6,7 @@ export { useObjectDetail } from './useObjectDetail';
 export { useObjectDetails } from './useObjectDetails';
 export { useScrollRestore } from './useScrollRestore';
 export { useTemplateQuery } from './useTemplateQuery';
+export { useRelationshipGraph } from './useRelationshipGraph';
+export type { RelationshipGraphData, TableOccurrence, Relationship, JoinPredicate, TOField } from './useRelationshipGraph';
+export { useGraphSearch } from './useGraphSearch';
+export type { GraphSearchAPI } from './useGraphSearch';

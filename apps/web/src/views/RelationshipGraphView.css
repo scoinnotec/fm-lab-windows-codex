@@ -1,0 +1,189 @@
+.relationship-graph-view {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  background: var(--bg, #fafafa);
+}
+
+.relationship-graph-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #ddd;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.relationship-graph-header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.relationship-graph-back {
+  text-decoration: none;
+  color: #111;
+  font-size: 0.9rem;
+  font-family: inherit;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #888;
+  border-radius: 4px;
+  background: #f4f4f4;
+  cursor: pointer;
+}
+
+.relationship-graph-back:hover {
+  background: #e8e8e8;
+  border-color: #555;
+}
+
+.relationship-graph-file-selector {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.relationship-graph-file-selector select {
+  min-width: 220px;
+  padding: 0.25rem 0.5rem;
+}
+
+.relationship-graph-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+
+.relationship-graph-empty,
+.relationship-graph-error {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  color: #555;
+  font-size: 0.95rem;
+}
+
+.relationship-graph-error {
+  color: #b00020;
+}
+
+.relationship-graph-canvas-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.relationship-graph-toolbar-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  background: #f0f0f0;
+  border-bottom: 1px solid #ddd;
+  flex-shrink: 0;
+}
+
+.relationship-graph-toolbar-actions button {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #888;
+  border-radius: 3px;
+  background: #fff;
+  color: #111;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.relationship-graph-toolbar-actions button:hover {
+  background: #f0f0f0;
+  border-color: #555;
+}
+
+.relationship-graph-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.relationship-graph-search input[type="search"] {
+  width: 220px;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #888;
+  border-radius: 3px;
+  font-size: 0.85rem;
+  background: #fff;
+  color: #111;
+}
+
+.relationship-graph-search input[type="search"]::placeholder {
+  color: #888;
+}
+
+.relationship-graph-search input[type="search"]:focus {
+  outline: none;
+  border-color: #555;
+}
+
+.relationship-graph-preselect-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.4rem 0.15rem 0.55rem;
+  background: #fde8e8;
+  border: 1px solid #dc2626;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  color: #991b1b;
+  white-space: nowrap;
+}
+
+.relationship-graph-preselect-chip strong {
+  font-weight: 600;
+}
+
+.relationship-graph-preselect-chip button {
+  background: transparent;
+  border: none;
+  color: #991b1b;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+  border-radius: 50%;
+}
+
+.relationship-graph-preselect-chip button:hover {
+  background: #f9c7c7;
+}
+
+.relationship-graph-match-count {
+  font-size: 0.78rem;
+  color: #555;
+  font-style: italic;
+}
+
+.relationship-graph-stats {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.relationship-graph-canvas {
+  flex: 1;
+  overflow: hidden;
+  background: #f7f7f7;
+  position: relative;
+  user-select: none;
+}
+
+.relationship-graph-canvas svg .to-box:hover .to-box-body {
+  stroke-width: 2;
+  stroke: #2266cc;
+}

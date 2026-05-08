@@ -23,9 +23,10 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@duckdb/node-api": "1.5.2-r.1",
+    "better-sqlite3": "^12.9.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
-    "@duckdb/node-api": "1.5.2-r.1",
     "express": "^5.2.1",
     "glob": "^13.0.0",
     "joi": "^18.0.2",

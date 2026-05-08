@@ -123,6 +123,13 @@ const schemas = {
     title: Joi.string().max(200).optional(),
   }).unknown(true), // Allow additional parameters for template variables
 
+  // GET /api/relationship-graph/:fileName - Beziehungsdiagramm einer Datei
+  relationshipGraph: Joi.object({
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
   // GET/POST /api/report - Execute report template
   report: Joi.object({
     template: Joi.string().required(),

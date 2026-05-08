@@ -50,6 +50,7 @@ app.get('/', (req, res) => {
       references: '/api/references?uuid=<uuid>',
       query: '/api/query?template=<name>',
       report: '/api/report?template=<name>',
+      pluginDocs: '/api/plugin-docs/:source/:function',
       adminReload: 'POST /api/admin/reload',
     },
     documentation: 'See README.md for full API documentation',
@@ -102,6 +103,7 @@ async function start() {
       console.log(`  GET  /api/references     - Get object references`);
       console.log(`  GET  /api/query          - Execute custom SQL template`);
       console.log(`  GET  /api/report         - Execute report SQL template`);
+      console.log(`  GET  /api/plugin-docs    - Plugin function documentation (MBS, ...)`);
       console.log('');
     });
 

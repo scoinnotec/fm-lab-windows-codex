@@ -491,3 +491,52 @@ button:disabled {
     background-color: #eef0ff;
   }
 }
+
+/* RelationshipGraph entry card (special object type "RelationshipGraph") */
+.relationship-graph-entry {
+  margin-top: 1.5rem;
+  padding: 0 0.5rem;
+}
+
+.relationship-graph-entry-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.relationship-graph-entry-card:hover {
+  border-color: #646cff;
+  background: #f4f6ff;
+}
+
+.relationship-graph-entry-title {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.relationship-graph-entry-file {
+  color: #555;
+  font-size: 0.95rem;
+}
+
+.relationship-graph-entry-hint {
+  margin-left: auto;
+  font-size: 1.2rem;
+  color: #888;
+}
+
+.relationship-graph-entry-empty {
+  padding: 1rem 1.25rem;
+  border: 1px dashed #ccc;
+  border-radius: 6px;
+  background: #fafafa;
+  color: #666;
+  font-style: italic;
+}

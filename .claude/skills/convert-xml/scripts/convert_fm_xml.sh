@@ -450,6 +450,44 @@ EOF
     rm -f "$CATALOG_TEMP_LOG"
     echo ""
 
+    # 7a. Build resolution tables (ObjectHomes + TableOccurrenceResolution)
+    # PRD prd_rest_api_token_extended_infos.md §5.1: datei-übergreifende
+    # Resolutions werden nach allen Imports einmalig neu aufgebaut.
+    echo "========================================="
+    echo "Building resolution tables..."
+    echo "========================================="
+
+    RESOLUTION_TEMP_LOG=$(mktemp)
+    if "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/build_resolutions.sql" > "$RESOLUTION_TEMP_LOG" 2>&1; then
+        echo "✓ Resolution tables built successfully"
+    else
+        echo "✗ WARNING: Resolution tables failed"
+
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        echo "ERROR: Resolution Tables Creation" >> "$ERROR_LOG_FILE"
+        echo "Time: $(date '+%Y-%m-%d %H:%M:%S')" >> "$ERROR_LOG_FILE"
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        cat "$RESOLUTION_TEMP_LOG" >> "$ERROR_LOG_FILE"
+        echo "" >> "$ERROR_LOG_FILE"
+
+        echo "Error details:"
+        cat "$RESOLUTION_TEMP_LOG" | sed 's/^/  /'
+
+        if $FAIL_FAST; then
+            rm -f "$RESOLUTION_TEMP_LOG"
+            echo ""
+            echo "========================================="
+            echo "FAIL-FAST MODE: Stopping batch import"
+            echo "========================================="
+            echo "Failed during: Resolution Tables Creation"
+            echo "Error log: $ERROR_LOG_FILE"
+            echo ""
+            exit 1
+        fi
+    fi
+    rm -f "$RESOLUTION_TEMP_LOG"
+    echo ""
+
     # 7b. Sync to rest-api/db/ (Produktionsmodus, nur wenn keine Fehler)
     if ! $TEST_MODE && [ ${#FAILED_FILES[@]} -eq 0 ]; then
         echo "========================================="
@@ -546,11 +584,20 @@ elif [[ "$MODE" == "single" ]]; then
     if process_single_file "$FILENAME"; then
         echo "SUCCESS: Database created successfully from $FILENAME"
 
+        # Resolutions werden auch im Single-File-Mode neu aufgebaut
+        # (PRD prd_rest_api_token_extended_infos.md §5.1). Hängt von ObjectCatalog
+        # aus den Universal Catalogs ab — bei Single-File-Mode wird ObjectCatalog
+        # NICHT automatisch aktualisiert. Für vollen Datenstand: --batch verwenden
+        # oder anschließend: duckdb db/fm_catalog.duckdb < sql/create_universal_catalogs.sql
+        echo ""
+        echo "Building resolution tables..."
+        if "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/build_resolutions.sql" > /dev/null 2>&1; then
+            echo "✓ Resolution tables built"
+        else
+            echo "✗ WARNING: Resolution tables failed (run universal_catalogs first?)"
+        fi
+
         # Sync-Hook auch im Single-Mode (Produktionsmodus).
-        # Hinweis: Universal Catalogs werden im Single-Mode NICHT automatisch
-        # gebaut. Fuer einen vollstaendigen Datenstand sollte danach noch
-        # "duckdb db/fm_catalog.duckdb < sql/create_universal_catalogs.sql"
-        # laufen (oder --batch verwenden).
         if ! $TEST_MODE; then
             echo ""
             echo "Syncing database to rest-api/..."

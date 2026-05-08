@@ -34,6 +34,7 @@ export const OBJECT_TYPES = [
   'Variable',
   'ScriptFolder',
   'LayoutFolder',
+  'RelationshipGraph',
 ] as const;
 
 export type ObjectType = typeof OBJECT_TYPES[number];
@@ -65,6 +66,7 @@ export const OBJECT_TYPE_MAP: Record<string, ObjectType> = {
   'variable': 'Variable',
   'scriptfolder': 'ScriptFolder',
   'layoutfolder': 'LayoutFolder',
+  'relationshipgraph': 'RelationshipGraph',
 };
 
 /**

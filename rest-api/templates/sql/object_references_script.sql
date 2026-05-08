@@ -1,15 +1,196 @@
 -- @template_type: report
--- @description: Object references per script step
+-- @description: Object references per script step — vollständige Heimat-Auflösung über ObjectHomes + TableOccurrenceResolution
 -- @params: uuid (required)
 -- @author: Marcel
--- @version: 1.0
+-- @version: 2.0
 -- @tags: scripts, references, tokens
 
+-- v2.0 (PRD prd_rest_api_token_extended_infos.md):
+--   - Heimat-Datei für Field/Script/Layout/CF kommt aus ObjectHomes statt FieldsForTables
+--   - TO-Resolution (TableOccurrenceResolution) liefert kanonische BaseTable + Cross-File-Indikator
+--   - Cross-File-Script-Aufrufe via XMLStepReferences.Data_Source_*
+--   - Variable-Refs (Set/Read) und Plugin-Function-Refs als eigene Ref-Typen
+-- v2.1 (PRD prd_rest_api_token_gtrr.md):
+--   - GTRR-TO-Refs (Ref_Type='tableOccurrence') über tor_gtrr-JOIN auf
+--     TableOccurrenceResolution (Ref_UUID = TO_UUID). Heimat ist die BT-Heimat,
+--     nicht die TO-Definitions-Datei (siehe PRD §5.2).
+-- v2.2 (PRD prd_rest_api_plugin_docs_subfunction.md):
+--   - Plugin-Funktion-Refs liefern `sub_function` aus XMLCalcReferences.Ref_SubName
+--     (fachlicher MBS-Funktionsname, z.B. 'List.AddPrefix'). NULL für nicht-Container-
+--     Plugins (Standard-Plugins ohne MBS-Container-Verhalten).
+--
+-- Source-Priorität: Step-Direkt-Refs (0) gewinnen gegen identische Treffer aus
+-- DDR-Calc-Chunks (1+) durch first-wins-Dedup im Formatter.
+--
+-- Spalten pro Ref-Zeile:
+--   line_index, source_priority, type, name, uuid
+--   field_file, field_basetable, to_name
+--   cross_file (BOOLEAN), data_source
+--   variable_scope, variable_usage
+--   sub_function (nur für type='pluginFunction' bei Container-Plugins)
+
+-- (1) Step-Direkt-Refs aus XMLStepReferences (Set Field, Go to Field, GTRR-Field,
+--     GTRR-TO, GTRR-Layout, Go to Layout, Perform Script, Set Variable)
 SELECT
-  CAST(Step_Index AS INTEGER) AS line_index,
-  Ref_Type AS type,
-  Ref_Name AS name,
-  Ref_UUID AS uuid
-FROM XMLStepReferences
-WHERE Script_UUID = getvariable('uuid')
-ORDER BY CAST(Step_Index AS INTEGER), Ref_Type, Ref_Name;
+  CAST(xsr.Step_Index AS INTEGER) AS line_index,
+  0 AS source_priority,
+  xsr.Ref_Type AS type,
+  xsr.Ref_Name AS name,
+  xsr.Ref_UUID AS uuid,
+  -- Heimat-Datei pro Ref_Type:
+  --   field           → ObjectHomes.Home_File via Field_UUID
+  --   script          → ObjectHomes.Home_File via Script_UUID, Fallback auf Data_Source_Name
+  --   layout          → ObjectHomes.Home_File via Layout_UUID
+  --   tableOccurrence → TableOccurrenceResolution.Home_File via TO_UUID+File_Name
+  --                     (NICHT ObjectHomes — das wäre die TO-Definitions-Datei,
+  --                      nicht die BT-Heimat / das Navigations-Ziel)
+  --   variable        → File_Name des Source-Steps (Variables haben keine Cross-File-Heimat)
+  CASE
+    WHEN xsr.Ref_Type = 'field'           THEN oh_field.Home_File
+    WHEN xsr.Ref_Type = 'script'          THEN COALESCE(oh_script.Home_File, xsr.Data_Source_Name)
+    WHEN xsr.Ref_Type = 'layout'          THEN oh_layout.Home_File
+    WHEN xsr.Ref_Type = 'tableOccurrence' THEN tor_gtrr.Home_File
+    WHEN xsr.Ref_Type = 'variable'        THEN xsr.File_Name
+  END AS field_file,
+  -- BaseTable für Field-Refs (kanonisch aus TableOccurrenceResolution) und
+  -- für tableOccurrence-Refs (GTRR-TO direkt aus tor_gtrr).
+  CASE
+    WHEN xsr.Ref_Type = 'field'           THEN tor.Canonical_BT_Name
+    WHEN xsr.Ref_Type = 'tableOccurrence' THEN tor_gtrr.Canonical_BT_Name
+  END AS field_basetable,
+  xsr.TO_Name AS to_name,
+  -- Cross-File-Indikator pro Ref_Type:
+  --   field           → TO ist via DataSource cross-file
+  --   script          → DataSourceReference im Step-XML vorhanden
+  --   tableOccurrence → TO ist via DataSource cross-file (GTRR-Sprung in andere Datei)
+  --   layout/variable → kein Cross-File-Konzept
+  CASE
+    WHEN xsr.Ref_Type = 'field'           THEN (tor.Resolution_Type = 'cross_file_ds')
+    WHEN xsr.Ref_Type = 'script'          THEN (xsr.Data_Source_Name IS NOT NULL)
+    WHEN xsr.Ref_Type = 'tableOccurrence' THEN (tor_gtrr.Resolution_Type = 'cross_file_ds')
+    ELSE FALSE
+  END AS cross_file,
+  COALESCE(tor.Data_Source_Name, tor_gtrr.Data_Source_Name, xsr.Data_Source_Name) AS data_source,
+  xsr.Variable_Scope AS variable_scope,
+  xsr.Usage_Type     AS variable_usage,
+  CAST(NULL AS VARCHAR) AS sub_function
+FROM XMLStepReferences xsr
+LEFT JOIN ObjectHomes oh_field
+       ON xsr.Ref_UUID = oh_field.Object_UUID AND xsr.Ref_Type = 'field'
+LEFT JOIN ObjectHomes oh_script
+       ON xsr.Ref_UUID = oh_script.Object_UUID AND xsr.Ref_Type = 'script'
+LEFT JOIN ObjectHomes oh_layout
+       ON xsr.Ref_UUID = oh_layout.Object_UUID AND xsr.Ref_Type = 'layout'
+LEFT JOIN TableOccurrenceResolution tor
+       ON xsr.TO_UUID  = tor.TO_UUID
+      AND xsr.File_Name = tor.File_Name
+LEFT JOIN TableOccurrenceResolution tor_gtrr
+       ON xsr.Ref_UUID  = tor_gtrr.TO_UUID
+      AND xsr.File_Name = tor_gtrr.File_Name
+      AND xsr.Ref_Type  = 'tableOccurrence'
+WHERE xsr.Script_UUID = getvariable('uuid')
+
+UNION ALL
+
+-- (2) Field-Refs aus XMLCalcReferences (Calculations innerhalb von Steps)
+SELECT
+  CAST(xcr.Source_Subkey AS INTEGER) AS line_index,
+  1 AS source_priority,
+  'field' AS type,
+  xcr.Ref_Name AS name,
+  xcr.Ref_UUID AS uuid,
+  oh.Home_File AS field_file,
+  tor.Canonical_BT_Name AS field_basetable,
+  xcr.TO_Name AS to_name,
+  (tor.Resolution_Type = 'cross_file_ds') AS cross_file,
+  tor.Data_Source_Name AS data_source,
+  CAST(NULL AS VARCHAR) AS variable_scope,
+  CAST(NULL AS VARCHAR) AS variable_usage,
+  CAST(NULL AS VARCHAR) AS sub_function
+FROM XMLCalcReferences xcr
+LEFT JOIN ObjectHomes oh
+       ON xcr.Ref_UUID = oh.Object_UUID
+LEFT JOIN TableOccurrenceResolution tor
+       ON xcr.TO_UUID  = tor.TO_UUID
+      AND xcr.File_Name = tor.File_Name
+WHERE xcr.Source_UUID  = getvariable('uuid')
+  AND xcr.Source_Type  = 'Script'
+  AND xcr.Ref_Type     = 'field'
+  AND xcr.Source_Subkey IS NOT NULL
+
+UNION ALL
+
+-- (3) CustomFunction-Refs (file-lokal — CF wird per Name+File aus ObjectHomes aufgelöst)
+SELECT
+  CAST(xcr.Source_Subkey AS INTEGER) AS line_index,
+  2 AS source_priority,
+  'customFunction' AS type,
+  xcr.Ref_Name AS name,
+  oh.Object_UUID AS uuid,
+  oh.Home_File AS field_file,
+  CAST(NULL AS VARCHAR) AS field_basetable,
+  CAST(NULL AS VARCHAR) AS to_name,
+  FALSE AS cross_file,
+  CAST(NULL AS VARCHAR) AS data_source,
+  CAST(NULL AS VARCHAR) AS variable_scope,
+  CAST(NULL AS VARCHAR) AS variable_usage,
+  CAST(NULL AS VARCHAR) AS sub_function
+FROM XMLCalcReferences xcr
+LEFT JOIN ObjectHomes oh
+       ON oh.Object_Name = xcr.Ref_Name
+      AND oh.Object_Type = 'CustomFunction'
+      AND oh.Home_File   = xcr.File_Name
+WHERE xcr.Source_UUID  = getvariable('uuid')
+  AND xcr.Source_Type  = 'Script'
+  AND xcr.Ref_Type     = 'customfunction'
+  AND xcr.Source_Subkey IS NOT NULL
+
+UNION ALL
+
+-- (4) PluginFunction-Refs (extern, kein Heimat-File, kein crossFile)
+-- sub_function: bei MBS-Container-Plugin der fachliche Funktionsname (PRD §3.5).
+SELECT
+  CAST(xcr.Source_Subkey AS INTEGER) AS line_index,
+  3 AS source_priority,
+  'pluginFunction' AS type,
+  xcr.Ref_Name AS name,
+  CAST(NULL AS VARCHAR) AS uuid,
+  CAST(NULL AS VARCHAR) AS field_file,
+  CAST(NULL AS VARCHAR) AS field_basetable,
+  CAST(NULL AS VARCHAR) AS to_name,
+  FALSE AS cross_file,
+  CAST(NULL AS VARCHAR) AS data_source,
+  CAST(NULL AS VARCHAR) AS variable_scope,
+  CAST(NULL AS VARCHAR) AS variable_usage,
+  xcr.Ref_SubName AS sub_function
+FROM XMLCalcReferences xcr
+WHERE xcr.Source_UUID  = getvariable('uuid')
+  AND xcr.Source_Type  = 'Script'
+  AND xcr.Ref_Type     = 'pluginfunction'
+  AND xcr.Source_Subkey IS NOT NULL
+
+UNION ALL
+
+-- (5) Variable-Lesungen aus Calc-Chunks (immer 'read').
+--     Set-Variable-Definitionen kommen über Block 1 (XMLStepReferences mit usage='set').
+SELECT
+  CAST(xcr.Source_Subkey AS INTEGER) AS line_index,
+  4 AS source_priority,
+  'variable' AS type,
+  xcr.Ref_Name AS name,
+  CAST(NULL AS VARCHAR) AS uuid,
+  xcr.File_Name AS field_file,
+  CAST(NULL AS VARCHAR) AS field_basetable,
+  CAST(NULL AS VARCHAR) AS to_name,
+  FALSE AS cross_file,
+  CAST(NULL AS VARCHAR) AS data_source,
+  xcr.Variable_Scope AS variable_scope,
+  xcr.Usage_Type     AS variable_usage,
+  CAST(NULL AS VARCHAR) AS sub_function
+FROM XMLCalcReferences xcr
+WHERE xcr.Source_UUID  = getvariable('uuid')
+  AND xcr.Source_Type  = 'Script'
+  AND xcr.Ref_Type     = 'variable'
+  AND xcr.Source_Subkey IS NOT NULL
+
+ORDER BY line_index, source_priority, type, name, sub_function NULLS FIRST;

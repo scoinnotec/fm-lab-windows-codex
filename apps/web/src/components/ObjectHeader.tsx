@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { FMObject } from '../types';
 import { Slot } from '../plugins';
 
@@ -61,6 +62,15 @@ export const ObjectHeader: React.FC<ObjectHeaderProps> = ({ object }) => {
           <span className="detail-source">
             Quelle: {object.Source_Table}
           </span>
+        )}
+        {object.Object_Type === 'TableOccurrence' && object.File_Name && (
+          <Link
+            to={`/relationship-graph/${encodeURIComponent(object.File_Name)}?to=${encodeURIComponent(object.Object_UUID)}`}
+            className="detail-rg-link"
+            title="Im Beziehungsdiagramm der Datei anzeigen"
+          >
+            ↗ Beziehungsdiagramm
+          </Link>
         )}
       </div>
       <div className="detail-uuid-row">

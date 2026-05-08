@@ -29,6 +29,7 @@ const OBJECT_TYPES = [
   'Variable',
   'ScriptFolder',
   'LayoutFolder',
+  'RelationshipGraph',
 ];
 
 /**
@@ -69,6 +70,7 @@ const OBJECT_TYPE_MAP = {
   'variable': 'Variable',
   'scriptfolder': 'ScriptFolder',
   'layoutfolder': 'LayoutFolder',
+  'relationshipgraph': 'RelationshipGraph',
 };
 
 /**

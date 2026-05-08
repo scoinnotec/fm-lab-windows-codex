@@ -12,6 +12,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), version
 
 ---
 
+## [0.6.5] — 2026-05-08
+
+Relationship graph visualization, extended TableOccurrence schema, enriched script-reference tokens, and plugin documentation API.
+
+- **Extended TableOccurrence data model**: parser now resolves the underlying `BaseTable` reference for every `TableOccurrence` and tracks the home file of each field (relevant for cross-file relationships) — surfaces in `convert_xml.sql` and propagates through `ObjectCatalog` / `ObjectLinks`
+- **Schema additions** for graph-aware queries: TO rows carry their resolved base table, fields carry their home file, and relationships expose left/right TO + field metadata in the new graph SQL templates
+- **Relationship graph view**: interactive visualization of `TableOccurrences`, fields, and relationships — TO boxes, join lines, automatic graph layout, search field with result selection, and cross-navigation / deep-linking between objects
+- Dedicated REST API endpoints for the graph (`relationship_graph_tos.sql`, `relationship_graph_relationships.sql`, `relationship_graph_fields.sql`) with a `relationshipGraph` controller and route
+- Web frontend components `RelationshipGraph` / `TOBox` / `JoinLine` and `useGraphSearch` / `useRelationshipGraph` hooks
+- **Plugin function documentation API**: new `/plugin-docs` endpoint with HTML extractor and marker-based section parsing for inline help on plugin / MBS function calls
+- MBS source service and `plugin-token-registry` for resolving and annotating plugin function references in the token formatter
+- **Enriched token output** in `object_references_script.sql`: TableOccurrence info on field references, GTRR (Go to Related Record) target resolution, DDR-calculation token-refs, and additional reference metadata for script steps
+- New `build_resolutions.sql` for cross-reference resolution preprocessing
+
+---
+
 ## [0.6.4] — 2026-05-07
 
 XML import preprocessor: preserves line breaks in calculation code and tolerates invalid XML control characters.

@@ -73,6 +73,21 @@
   color: #888;
 }
 
+.detail-rg-link {
+  font-size: 0.85rem;
+  color: #4858c2;
+  text-decoration: none;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid #aab3e8;
+  border-radius: 3px;
+  background: #f4f6ff;
+}
+
+.detail-rg-link:hover {
+  background: #e6eaff;
+  border-color: #4858c2;
+}
+
 .detail-uuid-row {
   margin-top: 0.5rem;
   display: flex;

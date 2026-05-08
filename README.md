@@ -176,6 +176,10 @@ Spec-driven development with AI agents is used as a best practice together with 
 
 All changes were reviewed, selected, and integrated by the project maintainer.
 
+### Disclaimer
+
+This software is provided "as is", without warranty of any kind, express or implied. No guarantees are made regarding completeness, functionality, or stability. The authors accept no liability for data loss or unintended interactions with the user's environment. Use at your own risk.
+
 ### License
 
 MIT — see [`LICENSE`](LICENSE).

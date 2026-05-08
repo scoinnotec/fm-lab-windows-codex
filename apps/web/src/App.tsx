@@ -5,6 +5,7 @@ import { OBJECT_TYPES } from '@packages/shared/constants';
 import { useInfiniteSearch, useDebounce, useScrollRestore } from './hooks';
 import { VirtualList, DetailView, SearchOptions, FolderTree, type FolderTreeSubtype } from './components';
 import { SettingsView } from './views/SettingsView';
+import { RelationshipGraphView } from './views/RelationshipGraphView';
 import type { SortOption, GroupOption, VirtualListRow, FMObject } from './types';
 import './App.css';
 
@@ -340,14 +341,36 @@ function SearchView() {
       </div>
 
       {/* Error message (search mode only) */}
-      {!isTreeMode && error && (
+      {!isTreeMode && error && objectType !== 'RelationshipGraph' && (
         <div className="error-message">
           {error}
         </div>
       )}
 
+      {/* RelationshipGraph: Spezial-Einstiegspunkt — keine Liste, sondern Direktlink */}
+      {!isTreeMode && objectType === 'RelationshipGraph' && (
+        <div className="relationship-graph-entry">
+          {selectedFile ? (
+            <Link
+              to={`/relationship-graph/${encodeURIComponent(selectedFile)}`}
+              className="relationship-graph-entry-card"
+            >
+              <span className="relationship-graph-entry-title">
+                Beziehungsdiagramm öffnen
+              </span>
+              <span className="relationship-graph-entry-file">{selectedFile}</span>
+              <span className="relationship-graph-entry-hint">→</span>
+            </Link>
+          ) : (
+            <div className="relationship-graph-entry-empty">
+              Bitte oben eine Datei auswählen, um das Beziehungsdiagramm anzuzeigen.
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Search mode: Virtual list */}
-      {!isTreeMode && !error && (
+      {!isTreeMode && !error && objectType !== 'RelationshipGraph' && (
         <VirtualList
           rows={processedRows}
           itemCount={items.length}
@@ -362,7 +385,7 @@ function SearchView() {
       )}
 
       {/* Search mode: Initial loading state */}
-      {!isTreeMode && loading && items.length === 0 && (
+      {!isTreeMode && objectType !== 'RelationshipGraph' && loading && items.length === 0 && (
         <div className="virtual-list-empty">
           Lade Objekte...
         </div>
@@ -386,6 +409,8 @@ function App() {
       <Route path="/" element={<SearchView />} />
       <Route path="/object/:uuid" element={<DetailView />} />
       <Route path="/settings" element={<SettingsView />} />
+      <Route path="/relationship-graph/:fileName" element={<RelationshipGraphView />} />
+      <Route path="/relationship-graph" element={<RelationshipGraphView />} />
     </Routes>
   );
 }

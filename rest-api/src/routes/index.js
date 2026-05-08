@@ -6,6 +6,8 @@ const systemRoutes = require('./system.routes');
 const queryRoutes = require('./query.routes');
 const adminRoutes = require('./admin.routes');
 const pluginsRoutes = require('./plugins.routes');
+const pluginDocsRoutes = require('./plugin-docs.routes');
+const relationshipGraphRoutes = require('./relationshipGraph.routes');
 const { loadPlugins } = require('../plugins/loader');
 
 /**
@@ -27,6 +29,12 @@ router.use('/', adminRoutes);
 
 // Plugins metadata API (/api/plugins) — must be mounted before loadPlugins()
 router.use('/', pluginsRoutes);
+
+// Plugin function documentation (/api/plugin-docs)
+router.use('/', pluginDocsRoutes);
+
+// Relationship Graph (/api/relationship-graph/:fileName)
+router.use('/', relationshipGraphRoutes);
 
 // Plugin routes (dynamically discovered)
 loadPlugins(router);
