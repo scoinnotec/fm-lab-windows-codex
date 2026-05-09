@@ -53,10 +53,16 @@ export const useObjectDetail = (uuid: string | undefined): UseObjectDetailResult
       // Parallel fetch: object details + operational refs + structural refs.
       // Strukturelle Links (parent_folder, parent_object, parent_layout)
       // landen sonst nicht im Default-Operational-Filter.
+      // Hohes Limit, damit z.B. BaseTables mit > 100 Feldern und TOs vollständig
+      // ankommen — das API-Default (100) schneidet sonst bei UNION ALL ohne
+      // ORDER BY je nach Insertion-Order ganze Typen ab. Filter und Suche im
+      // HierarchyTree machen längere Listen handhabbar; obergrenze ist
+      // environment.api.maxLimit (10000).
+      const REFS_LIMIT = 10000;
       const [objectResponse, opRefsResponse, structRefsResponse] = await Promise.all([
         api.get({ uuid }),
-        api.references({ uuid, direction: 'all', link_type: 'operational' }),
-        api.references({ uuid, direction: 'all', link_type: 'structural' }),
+        api.references({ uuid, direction: 'all', link_type: 'operational', limit: REFS_LIMIT }),
+        api.references({ uuid, direction: 'all', link_type: 'structural', limit: REFS_LIMIT }),
       ]);
 
       // Extract object data

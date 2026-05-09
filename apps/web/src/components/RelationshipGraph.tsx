@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { RelationshipGraphData, TableOccurrence } from '../hooks/useRelationshipGraph';
 import { useGraphSearch } from '../hooks/useGraphSearch';
@@ -10,6 +10,15 @@ type Props = {
   data: RelationshipGraphData;
   initialPreSelectUuid?: string | null;
   onPreSelectExit?: () => void;
+};
+
+/**
+ * Imperatives Handle für die ESC-Stack-Verdrahtung in RelationshipGraphView.
+ * Status-Getter werden bei jedem ESC-Druck live aufgerufen.
+ */
+export type RelationshipGraphHandle = {
+  hasSearchState: () => boolean;
+  clearSearch: () => void;
 };
 
 const PADDING = 40;
@@ -36,7 +45,7 @@ function computeViewport(tos: TableOccurrence[]) {
   return { minX, minY, maxX, maxY };
 }
 
-export function RelationshipGraph({ data, initialPreSelectUuid = null, onPreSelectExit }: Props) {
+export const RelationshipGraph = forwardRef<RelationshipGraphHandle, Props>(({ data, initialPreSelectUuid = null, onPreSelectExit }, externalRef) => {
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -151,16 +160,32 @@ export function RelationshipGraph({ data, initialPreSelectUuid = null, onPreSele
     navigate(`/object/${uuid}`);
   };
 
+  // Live-Refs für den imperative Handle.
+  const searchRef = useRef(search);
+  searchRef.current = search;
+  const onPreSelectExitRef = useRef(onPreSelectExit);
+  onPreSelectExitRef.current = onPreSelectExit;
+
+  useImperativeHandle(externalRef, () => ({
+    hasSearchState: () => {
+      const s = searchRef.current;
+      return s.query !== '' || s.selectedUuid !== null || s.isPreSelectActive;
+    },
+    clearSearch: () => {
+      const s = searchRef.current;
+      const wasPreSelect = s.isPreSelectActive;
+      s.clear();
+      if (wasPreSelect) onPreSelectExitRef.current?.();
+    },
+  }), []);
+
   const onSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // ESC bewusst NICHT lokal abfangen — globaler ESC-Stack auf
+    // RelationshipGraphView-Ebene regelt Suche/Selektion → Zurück.
     if (e.key === 'Tab') {
       e.preventDefault();
       if (e.shiftKey) search.selectPrev();
       else search.selectNext();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      const wasPreSelect = search.isPreSelectActive;
-      search.clear();
-      if (wasPreSelect) onPreSelectExit?.();
     } else if (e.key === 'Enter' && search.selectedUuid) {
       e.preventDefault();
       handleTOClick(search.selectedUuid);
@@ -276,4 +301,6 @@ export function RelationshipGraph({ data, initialPreSelectUuid = null, onPreSele
       </div>
     </div>
   );
-}
+});
+
+RelationshipGraph.displayName = 'RelationshipGraph';

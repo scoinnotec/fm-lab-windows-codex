@@ -131,9 +131,121 @@
   margin: 1rem 0;
 }
 
+/* References Filter Toolbar */
+.hierarchy-tree-wrapper {
+  margin-top: 1rem;
+}
+
+.references-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+}
+
+.references-filter-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.references-filter-search input[type="search"] {
+  flex: 1;
+  max-width: 320px;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  background: #0d0d0d;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+.references-filter-search input[type="search"]::placeholder {
+  color: #666;
+}
+
+.references-filter-search input[type="search"]:focus {
+  outline: none;
+  border-color: #646cff;
+}
+
+.references-filter-count {
+  font-size: 0.78rem;
+  color: #888;
+  font-style: italic;
+}
+
+.references-filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.references-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.12rem 0.55rem;
+  font-size: 0.72rem;
+  border: 1px solid #3a3a3a;
+  border-radius: 999px;
+  background: #1f1f1f;
+  color: #ccc;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: background 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+}
+
+.references-filter-pill:hover {
+  border-color: #646cff;
+  color: #fff;
+}
+
+.references-filter-pill.active {
+  background: #1a1a3a;
+  border-color: #646cff;
+  color: #646cff;
+  font-weight: 600;
+}
+
+.references-filter-pill-count {
+  color: #888;
+  font-size: 0.68rem;
+  font-weight: 400;
+  margin-left: 0.15rem;
+}
+
+.references-filter-pill.active .references-filter-pill-count {
+  color: inherit;
+  opacity: 0.8;
+}
+
+.references-filter-link {
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.2rem;
+  font-size: 0.72rem;
+  background: transparent;
+  border: none;
+  color: #646cff;
+  cursor: pointer;
+  text-decoration: underline;
+  font-family: inherit;
+}
+
+.references-filter-link:hover {
+  color: #8a92ff;
+}
+
 /* Hierarchy Tree */
 .hierarchy-tree {
-  margin-top: 1rem;
+  margin-top: 0;
 }
 
 .hierarchy-section {
@@ -520,5 +632,58 @@
 
   .legend-hint {
     color: #aaa;
+  }
+
+  .references-filter {
+    background: #f7f7f7;
+    border-color: #e0e0e0;
+  }
+
+  .references-filter-search input[type="search"] {
+    background: #fff;
+    border-color: #c0c0c0;
+    color: #111;
+  }
+
+  .references-filter-search input[type="search"]::placeholder {
+    color: #888;
+  }
+
+  .references-filter-search input[type="search"]:focus {
+    border-color: #646cff;
+  }
+
+  .references-filter-count {
+    color: #666;
+  }
+
+  .references-filter-pill {
+    background: #fff;
+    border-color: #c0c0c0;
+    color: #444;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+  }
+
+  .references-filter-pill:hover {
+    border-color: #646cff;
+    color: #1a1a1a;
+  }
+
+  .references-filter-pill.active {
+    background: #eef0ff;
+    border-color: #646cff;
+    color: #4858c2;
+  }
+
+  .references-filter-pill-count {
+    color: #888;
+  }
+
+  .references-filter-link {
+    color: #2266cc;
+  }
+
+  .references-filter-link:hover {
+    color: #1a4f99;
   }
 }

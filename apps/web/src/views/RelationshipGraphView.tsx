@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { useRelationshipGraph } from '../hooks/useRelationshipGraph';
-import { RelationshipGraph } from '../components/RelationshipGraph';
+import { RelationshipGraph, type RelationshipGraphHandle } from '../components/RelationshipGraph';
+import { useEscapeStack } from '../hooks/useEscapeStack';
 import './RelationshipGraphView.css';
 
 type FileInfo = { File_Name?: string };
@@ -13,6 +14,7 @@ export function RelationshipGraphView() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [files, setFiles] = useState<FileInfo[]>([]);
+  const graphRef = useRef<RelationshipGraphHandle>(null);
 
   const preSelectUuid = searchParams.get('to');
 
@@ -55,6 +57,21 @@ export function RelationshipGraphView() {
       setSearchParams(next, { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  // Mehrstufige ESC-Logik: Suche/Selektion/Vorauswahl leeren → Zurück.
+  useEscapeStack([
+    () => {
+      if (graphRef.current?.hasSearchState()) {
+        graphRef.current.clearSearch();
+        return true;
+      }
+      return false;
+    },
+    () => {
+      handleBack();
+      return true;
+    },
+  ]);
 
   return (
     <div className="relationship-graph-view">
@@ -116,6 +133,7 @@ export function RelationshipGraphView() {
         {fileName && data && data.tableOccurrences.length > 0 &&
           data.tableOccurrences.some(t => t.bounds.left != null) && (
             <RelationshipGraph
+              ref={graphRef}
               data={data}
               initialPreSelectUuid={preSelectUuid}
               onPreSelectExit={handlePreSelectExit}

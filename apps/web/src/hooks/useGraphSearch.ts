@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TableOccurrence } from './useRelationshipGraph';
+import { useUrlState } from './useUrlState';
 
 export type GraphSearchAPI = {
   query: string;
@@ -27,7 +28,10 @@ export function useGraphSearch(
   tos: TableOccurrence[],
   initialPreSelectUuid: string | null
 ): GraphSearchAPI {
-  const [query, setQueryState] = useState('');
+  // Suche liegt in der URL — Stack erhält State beim Zurück. selectedUuid und
+  // preSelectUuid bleiben transient/effektgesteuert (preSelect kommt aus
+  // ?to=-Parameter via initialPreSelectUuid und wird vom View-Wrapper verwaltet).
+  const [query, setQueryState] = useUrlState<string>('q', '');
   const [selectedUuid, setSelectedUuid] = useState<string | null>(null);
   const [preSelectUuid, setPreSelectUuid] = useState<string | null>(initialPreSelectUuid);
 

@@ -12,6 +12,8 @@ This project takes a different approach. It converts the full structure of a Fil
 
 The first release focuses on this core: reliable XML conversion, a comprehensive object catalog, and a modular architecture that is open source and **easy to extend**. Future releases will build on this foundation — the long-term goal is to become a solid developer tooling platform for the FileMaker space.
 
+**Addendum:** [Claris has announced native support for AI coding within FileMaker](https://www.claris.com/blog/2026/how-claris-is-building-for-what-comes-next) for the upcoming releases. This does not contradict the goals of this project, but rather emphasizes the need for a solid foundation for code analysis and tooling in the FileMaker ecosystem. The architecture of fm-lab is designed to be flexible and adaptable, so it can integrate with Claris's AI coding features as they evolve, while also providing value to developers who want to leverage AI tools in their workflows today.
+
 
 ## Features
 
@@ -139,6 +141,10 @@ Test data and tools for fm-lab developers are available for validation (will be 
 **v0.6.1** — First public release with core XML conversion, DuckDB catalog, REST API, and web client for exploration.
 
 Some rough edges, but the core architecture is in place and ready for real-world use and feedback. Future updates will focus on stability, UI optimizations, and expanding the feature set.
+
+**v0.6.2** to **v0.6.6** — Optimizations for XML-Parser, REST-API and web client.
+
+Further improvements to the foundation of the project to lay the groundwork for upcoming features. Web client now supports more detailed exploration of the object catalog and dependencies.
 
 **Note:** `CLAUDE.md` and the Claude Skills are currently in German. An English version is planned for the next release.
 

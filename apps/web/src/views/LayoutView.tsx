@@ -1,0 +1,92 @@
+import { useRef } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLayoutData } from '../hooks/useLayoutData';
+import { LayoutCanvas, type LayoutCanvasHandle } from '../components/LayoutCanvas';
+import { useEscapeStack } from '../hooks/useEscapeStack';
+import './LayoutView.css';
+
+export function LayoutView() {
+  const { uuid } = useParams<{ uuid: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const canvasRef = useRef<LayoutCanvasHandle>(null);
+
+  const { data, loading, error } = useLayoutData(uuid);
+
+  // Zurück: bevorzugt vorigen Eintrag, sonst Startseite (analog RelationshipGraphView).
+  const handleBack = () => {
+    if (location.key !== 'default') navigate(-1);
+    else navigate('/');
+  };
+
+  // Mehrstufige ESC-Logik:
+  //   1. Tooltip → schließen
+  //   2. Suche / Selektion → leeren (kombiniert wie bisher)
+  //   3. Typ-Filter → leeren
+  //   4. Zurück.
+  useEscapeStack([
+    () => {
+      if (canvasRef.current?.hasTooltip()) {
+        canvasRef.current.closeTooltip();
+        return true;
+      }
+      return false;
+    },
+    () => {
+      if (canvasRef.current?.hasSearchState()) {
+        canvasRef.current.clearSearch();
+        return true;
+      }
+      return false;
+    },
+    () => {
+      if (canvasRef.current?.hasFilters()) {
+        canvasRef.current.clearFilters();
+        return true;
+      }
+      return false;
+    },
+    () => {
+      handleBack();
+      return true;
+    },
+  ]);
+
+  return (
+    <div className="layout-view">
+      <header className="layout-view-header">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="layout-view-back"
+          title="Zurück zur vorherigen Ansicht"
+        >
+          ← Zurück
+        </button>
+        <h1>
+          Layout
+          {data && (
+            <span className="layout-view-title">
+              : {data.layoutName}
+              {data.layoutToName && (
+                <span className="layout-view-subtitle"> ({data.layoutToName})</span>
+              )}
+            </span>
+          )}
+        </h1>
+        {data && <div className="layout-view-file">{data.fileName}</div>}
+      </header>
+
+      <div className="layout-view-body">
+        {loading && <div className="layout-view-empty">Lade Layout…</div>}
+        {error && <div className="layout-view-error">Fehler: {error}</div>}
+        {!loading && !error && data && data.objects.length === 0 && (
+          <div className="layout-view-empty">Dieses Layout enthält keine Objekte.</div>
+        )}
+        {!loading && !error && data && data.objects.length > 0 && (
+          <LayoutCanvas ref={canvasRef} data={data} />
+        )}
+      </div>
+    </div>
+  );
+}

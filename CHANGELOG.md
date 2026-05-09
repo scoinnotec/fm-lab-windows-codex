@@ -12,6 +12,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), version
 
 ---
 
+## [0.6.6] — 2026-05-09
+
+Interactive layout view, layout object Z-order in the parser, and rich frontend navigation.
+
+- **Interactive layout view**: new `LayoutCanvas` / `LayoutObjectShape` / `LayoutObjectTooltip` components — visual rendering of layout objects with hover tooltips, type filter (`LayoutTypeFilter`), free-text search, and cross-navigation to fields, scripts, and value lists
+- **Layout object Z-order** in `convert_xml.sql`: parser now preserves the stacking order from the XML so the canvas renders objects respecting the original front-to-back hierarchy
+- New SQL templates `display_layout_objects_data.sql` and `display_layout_parts_data.sql` powering the layout view; `display_layout_svg.sql` adapted to the new ordering
+- **References filter & search** in the detail view: `ReferencesFilter` component to narrow down referenced/referencing objects by type and free-text query
+- **Keyboard navigation**: cursor navigation through reference lists and a `useEscapeStack` hook for `ESC` → back navigation across nested views
+- **URL-persistent page state**: `useUrlState` hook synchronizes active view, selection, filter, and search into URL parameters — deep-linkable and survives reload
+
+---
+
 ## [0.6.5] — 2026-05-08
 
 Relationship graph visualization, extended TableOccurrence schema, enriched script-reference tokens, and plugin documentation API.

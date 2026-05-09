@@ -6,6 +6,7 @@ import { useInfiniteSearch, useDebounce, useScrollRestore } from './hooks';
 import { VirtualList, DetailView, SearchOptions, FolderTree, type FolderTreeSubtype } from './components';
 import { SettingsView } from './views/SettingsView';
 import { RelationshipGraphView } from './views/RelationshipGraphView';
+import { LayoutView } from './views/LayoutView';
 import type { SortOption, GroupOption, VirtualListRow, FMObject } from './types';
 import './App.css';
 
@@ -411,6 +412,7 @@ function App() {
       <Route path="/settings" element={<SettingsView />} />
       <Route path="/relationship-graph/:fileName" element={<RelationshipGraphView />} />
       <Route path="/relationship-graph" element={<RelationshipGraphView />} />
+      <Route path="/layout/:uuid" element={<LayoutView />} />
     </Routes>
   );
 }

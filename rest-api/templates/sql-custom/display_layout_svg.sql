@@ -45,6 +45,7 @@ layout_objects_raw AS (
     lo.Bounds_Right,
     lo.Parent_Object_ID,
     lo.Nesting_Level,
+    lo.Z_Order,
     lo.Part_Type,
     lo.Layout_ID,
     lo.File_Name
@@ -61,7 +62,7 @@ objects_absolute AS (
     Bounds_Left as Abs_Left,
     Bounds_Bottom as Abs_Bottom,
     Bounds_Right as Abs_Right,
-    Parent_Object_ID, Nesting_Level, Part_Type
+    Parent_Object_ID, Nesting_Level, Z_Order, Part_Type
   FROM layout_objects_raw
   WHERE Parent_Object_ID IS NULL
 
@@ -74,7 +75,7 @@ objects_absolute AS (
     parent.Abs_Left + child.Bounds_Left,
     parent.Abs_Top + child.Bounds_Bottom,
     parent.Abs_Left + child.Bounds_Right,
-    child.Parent_Object_ID, child.Nesting_Level, child.Part_Type
+    child.Parent_Object_ID, child.Nesting_Level, child.Z_Order, child.Part_Type
   FROM layout_objects_raw child
   JOIN objects_absolute parent ON child.Parent_Object_ID = parent.Object_ID
 ),
@@ -216,7 +217,7 @@ SELECT content FROM (
 
   -- Layout object rectangles + labels (with absolute coordinates)
   SELECT 3 as sort_key,
-    (os.Nesting_Level * 1000000 + os.Object_ID) as sub_key,
+    (os.Nesting_Level * 1000000 + COALESCE(os.Z_Order, os.Object_ID)) as sub_key,
     '<g>'
     || '<rect x="' || os.Abs_Left || '" y="' || os.Abs_Top || '"'
     || ' width="' || os.Width || '" height="' || os.Height || '"'

@@ -1453,6 +1453,7 @@ CREATE TABLE IF NOT EXISTS LayoutObjects (
     Bounds_Right INTEGER,
     Parent_Object_ID BIGINT,
     Nesting_Level INTEGER,
+    Z_Order INTEGER,
     Hide_Calculation_Text VARCHAR,
     Tooltip_Calculation_Text VARCHAR,
     Label_Calculation_Text VARCHAR,
@@ -1501,6 +1502,7 @@ root_objects AS (
         xml_extract_text(object_xml, '/LayoutObject/Bounds/@right')[1]::INTEGER as Bounds_Right,
         NULL::BIGINT as Parent_Object_ID,
         0 as Nesting_Level,
+        t.z_order::INTEGER as Z_Order,
         -- Calculation Text Extraction (CDATA aus XML)
         xml_extract_text(object_xml, '/LayoutObject/Conditions/Hide/Calculation/Text')[1] as Hide_Calculation_Text,
         xml_extract_text(object_xml, '/LayoutObject/Tooltip/Calculation/Text')[1] as Tooltip_Calculation_Text,
@@ -1518,7 +1520,7 @@ root_objects AS (
     FROM layout_parts
     CROSS JOIN LATERAL unnest(
         xml_extract_elements(part_xml, '/Part/ObjectList/LayoutObject')
-    ) as t(object_xml)
+    ) WITH ORDINALITY AS t(object_xml, z_order)
 ),
 nested_objects AS (
     SELECT
@@ -1536,6 +1538,7 @@ nested_objects AS (
         Bounds_Right,
         Parent_Object_ID,
         Nesting_Level,
+        Z_Order,
         Hide_Calculation_Text,
         Tooltip_Calculation_Text,
         Label_Calculation_Text,
@@ -1561,6 +1564,7 @@ nested_objects AS (
         xml_extract_text(child_xml, '/LayoutObject/Bounds/@right')[1]::INTEGER as Bounds_Right,
         parent.Object_ID as Parent_Object_ID,
         parent.Nesting_Level + 1 as Nesting_Level,
+        t.z_order::INTEGER as Z_Order,
         -- Calculation Text Extraction (CDATA aus XML)
         xml_extract_text(child_xml, '/LayoutObject/Conditions/Hide/Calculation/Text')[1] as Hide_Calculation_Text,
         xml_extract_text(child_xml, '/LayoutObject/Tooltip/Calculation/Text')[1] as Tooltip_Calculation_Text,
@@ -1578,7 +1582,7 @@ nested_objects AS (
     FROM nested_objects parent
     CROSS JOIN LATERAL unnest(
         xml_extract_elements(parent.object_xml, '//ObjectList/LayoutObject')
-    ) as t(child_xml)
+    ) WITH ORDINALITY AS t(child_xml, z_order)
     WHERE parent.Object_Type IN (
         'Portal',
         'Group',
@@ -1608,6 +1612,7 @@ SELECT
     Bounds_Right,
     Parent_Object_ID,
     Nesting_Level,
+    Z_Order,
     -- chr(127) -> chr(10): Preprocessing-Sentinel für CR zurück zu LF
     replace(Hide_Calculation_Text, chr(127), chr(10)) as Hide_Calculation_Text,
     replace(Tooltip_Calculation_Text, chr(127), chr(10)) as Tooltip_Calculation_Text,
@@ -1632,6 +1637,7 @@ ON CONFLICT (Object_UUID, File_Name) DO UPDATE SET
     Bounds_Right = EXCLUDED.Bounds_Right,
     Parent_Object_ID = EXCLUDED.Parent_Object_ID,
     Nesting_Level = EXCLUDED.Nesting_Level,
+    Z_Order = EXCLUDED.Z_Order,
     Hide_Calculation_Text = EXCLUDED.Hide_Calculation_Text,
     Tooltip_Calculation_Text = EXCLUDED.Tooltip_Calculation_Text,
     Label_Calculation_Text = EXCLUDED.Label_Calculation_Text,

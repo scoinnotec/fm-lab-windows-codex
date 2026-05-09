@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import React, { useMemo, useRef, useCallback } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useObjectDetail } from '../hooks/useObjectDetail';
 import { ObjectHeader } from './ObjectHeader';
-import { HierarchyTree } from './HierarchyTree';
+import { HierarchyTree, type HierarchyTreeHandle } from './HierarchyTree';
 import { TypeDetail } from './TypeDetail';
 import { DependencyGraph } from './DependencyGraph';
 import { Breadcrumbs } from './Breadcrumbs';
 import { LoadingSpinner } from './LoadingSpinner';
 import { ErrorMessage } from './ErrorMessage';
+import { useEscapeStack } from '../hooks/useEscapeStack';
+import { useUrlState } from '../hooks/useUrlState';
 import type { BreadcrumbItem, DetailViewTab } from '../types';
 import { DETAIL_TABS } from '../types';
 import '../DetailView.css';
@@ -30,20 +32,52 @@ function displayObjectType(objectType: string, sourceTable?: string | null): str
 export const DetailView: React.FC = () => {
   const { uuid } = useParams<{ uuid: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { object, references, loading, error, retry } = useObjectDetail(uuid);
-  const [activeTab, setActiveTab] = useState<DetailViewTab>('detail');
+  const hierarchyRef = useRef<HierarchyTreeHandle>(null);
 
-  // When navigating to a different object, use tab from URL param or default to 'detail'
-  useEffect(() => {
-    const tabParam = searchParams.get('tab') as DetailViewTab | null;
-    const validTabs = DETAIL_TABS.filter(t => t.enabled).map(t => t.id);
-    setActiveTab(tabParam && validTabs.includes(tabParam) ? tabParam : 'detail');
-  }, [uuid, searchParams]);
+  // URL ist Single Source of Truth für Tab — beim Wechsel wird die URL
+  // aktualisiert (replace), sodass beim Zurück-Navigieren der Tab erhalten
+  // bleibt. Default 'detail' wird NICHT in die URL geschrieben (saubere URL).
+  const validTabIds = useMemo(
+    () => new Set(DETAIL_TABS.filter(t => t.enabled).map(t => t.id)),
+    [],
+  );
+  const [tabParam, setTabParam] = useUrlState<string>('tab', 'detail');
+  const activeTab: DetailViewTab = (validTabIds.has(tabParam as DetailViewTab) ? tabParam : 'detail') as DetailViewTab;
+  const setActiveTab = useCallback((tab: DetailViewTab) => {
+    setTabParam(tab);
+  }, [setTabParam]);
 
   const handleBack = () => {
-    navigate(-1);
+    // Falls die DetailView per Direkt-Link/Bookmark geöffnet wurde, gibt es
+    // keinen Vorgänger im History-Stack — dann auf die Startseite gehen.
+    if (location.key !== 'default') navigate(-1);
+    else navigate('/');
   };
+
+  // Mehrstufige ESC-Logik: Suchfeld leeren → Filter leeren → Zurück.
+  // Stages werden in Reihenfolge geprüft, die erste aktive konsumiert ESC.
+  useEscapeStack([
+    () => {
+      if (hierarchyRef.current?.hasQuery()) {
+        hierarchyRef.current.clearQuery();
+        return true;
+      }
+      return false;
+    },
+    () => {
+      if (hierarchyRef.current?.hasFilters()) {
+        hierarchyRef.current.clearFilters();
+        return true;
+      }
+      return false;
+    },
+    () => {
+      handleBack();
+      return true;
+    },
+  ]);
 
   if (loading) {
     return (
@@ -86,7 +120,7 @@ export const DetailView: React.FC = () => {
       case 'detail':
         return <TypeDetail objectType={object.Object_Type} uuid={object.Object_UUID} />;
       case 'references':
-        return <HierarchyTree references={references} />;
+        return <HierarchyTree ref={hierarchyRef} references={references} />;
       case 'graph':
         return <DependencyGraph object={object} references={references} />;
       default:
