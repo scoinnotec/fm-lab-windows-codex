@@ -6,6 +6,19 @@
 
 -- Version 0.4
 -- Date: 2026-01-14
+
+-- Schema-Versionierung (siehe project/prd_schema_versioning_auto_heal.md):
+--   @SCHEMA_VERSION wird vom Shell-Skript per grep ausgewertet und gegen den
+--   Wert in der DB-Tabelle SchemaInfo verglichen. Bei Mismatch löst der
+--   Auto-Heal-Mechanismus einen Force-Rebuild aus.
+--
+--   @SCHEMA_HASH_FILES listet die SQL-Files, deren MD5-Summe als sekundärer
+--   Drift-Indikator herangezogen wird. build_resolutions.sql bewusst NICHT
+--   enthalten, weil es nur abgeleitete Tabellen anlegt.
+
+-- @SCHEMA_VERSION 1.0.0
+-- @SCHEMA_VERSION_DATE 2026-05-13
+-- @SCHEMA_HASH_FILES sql/convert_xml.sql sql/create_universal_catalogs.sql
 */
 
 
@@ -22,8 +35,32 @@ LOAD webbed;
 SET file_search_path = COALESCE(NULLIF(getenv('FM_XML_DIR'), ''), 'xml');
 SET VARIABLE fm_xml = 'Test.xml';  -- Wird durch Skill-Script ersetzt
 
+-- Schema-Marker (werden vom Shell-Skript zur Build-Zeit ersetzt; siehe
+-- Header-Kommentar @SCHEMA_VERSION / @SCHEMA_HASH_FILES und §5.2 des PRD).
+-- Die SchemaInfo-Tabelle (s. u.) wird am Ende des Imports mit diesen Werten
+-- befüllt, sodass folgende Läufe Drift detektieren können.
+SET VARIABLE schema_version = '1.0.0';   -- Wird durch Skill-Script ersetzt
+SET VARIABLE schema_hash = 'pending';    -- Wird durch Skill-Script ersetzt
+SET VARIABLE schema_notes = 'convert_xml.sql import';
+
 -- maximale Speichergröße für read_xml erhöhen (Standard: 16MB)
 SET VARIABLE max_filesize TO 256000000; -- 256 MB
+
+
+-- ========================================
+-- SchemaInfo (Versions-Persistenz)
+-- ========================================
+-- Speichert den Schema-Stand (Version + Content-Hash + Timestamp) nach jedem
+-- erfolgreichen Import. Wird vom convert_fm_xml.sh-Skript zur Drift-Detection
+-- gelesen. Historie bleibt erhalten — aktueller Stand =
+-- arg_max(SchemaInfo.* ORDER BY Schema_Built_At).
+CREATE TABLE IF NOT EXISTS SchemaInfo (
+    Schema_Version VARCHAR NOT NULL,
+    Schema_Hash VARCHAR NOT NULL,
+    Schema_Built_At TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    Builder_Notes VARCHAR,
+    PRIMARY KEY (Schema_Version, Schema_Hash, Schema_Built_At)
+);
 
 
 -- ========================================
@@ -3562,6 +3599,21 @@ ON CONFLICT (Theme_UUID, File_Name) DO UPDATE SET
 
 
 -- ============================================
+-- SchemaInfo aktualisieren
+-- ============================================
+-- Letzter Schritt: nach erfolgreichem Import den Schema-Stand persistieren.
+-- Wenn der Lauf vorher abbricht, bleibt der alte SchemaInfo-Eintrag aktuell,
+-- sodass die Detection beim nächsten Aufruf den Drift sauber erkennt.
+INSERT INTO SchemaInfo (Schema_Version, Schema_Hash, Schema_Built_At, Builder_Notes)
+VALUES (
+    getvariable('schema_version'),
+    getvariable('schema_hash'),
+    CURRENT_TIMESTAMP,
+    getvariable('schema_notes')
+);
+
+
+-- ============================================
 -- IMPLEMENTIERUNGS-STATUS
 -- ============================================
 -- ✅ Phase 0: Basis-Kataloge (10 Tabellen)
@@ -3569,8 +3621,9 @@ ON CONFLICT (Theme_UUID, File_Name) DO UPDATE SET
 -- ✅ Phase 2: DDR_INFO Integration (3 Tabellen)
 -- ✅ Phase 3: Layout-Objekte (1 Tabelle)
 -- ✅ Phase 4: Optionale Kataloge (6 Tabellen)
+-- ✅ Phase 5: SchemaInfo (Versionierung & Auto-Heal)
 --
--- GESAMT: 25 Tabellen erfolgreich implementiert
+-- GESAMT: 26 Tabellen erfolgreich implementiert
 
 
 

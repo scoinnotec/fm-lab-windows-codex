@@ -11,17 +11,29 @@
 #     element <FMDynamicTemplate> which is incompatible with the SQL XPath queries.
 #     Files with this root element are skipped with a warning.
 #
-# Usage:
-#   convert_fm_xml.sh <xml-filename>         # Single file mode
-#   convert_fm_xml.sh --batch                # Batch mode (all XML files)
-#   convert_fm_xml.sh --batch --fail-fast    # Batch mode (stop on first error)
-#   convert_fm_xml.sh --all                  # Alias for --batch
-#   convert_fm_xml.sh --test                 # Test mode (xml-test/ → fm_test.duckdb)
-#   convert_fm_xml.sh --test --fail-fast     # Test mode (stop on first error)
+# Schema-Versionierung & Auto-Heal:
+#   Vor jedem Import vergleicht das Skript die Schema-Version im SQL-Template
+#   (sql/convert_xml.sql: @SCHEMA_VERSION) mit der Version, die in der
+#   DB-Tabelle SchemaInfo persistiert ist. Bei Drift wird im Batch-Modus
+#   automatisch ein Rebuild ausgeführt (DB löschen, alle XMLs neu importieren).
+#   Im Single-File-Modus bricht das Skript stattdessen ab und verweist auf
+#   --batch --force-rebuild (siehe project/prd_schema_versioning_auto_heal.md).
 #
-# Parameters:
-#   $1: XML filename OR --batch/--all/--test flag
-#   $2: Optional --fail-fast flag (only in batch/test mode)
+# Usage:
+#   convert_fm_xml.sh <xml-filename>                          # Single file mode
+#   convert_fm_xml.sh <xml-filename> --force-rebuild          # Single + erzwungener Rebuild
+#   convert_fm_xml.sh --batch                                 # Batch mode (all XML files)
+#   convert_fm_xml.sh --batch --fail-fast                     # Batch mode (stop on first error)
+#   convert_fm_xml.sh --batch --force-rebuild                 # Batch + DB vorher löschen
+#   convert_fm_xml.sh --batch --no-auto-heal                  # Bei Schema-Drift abbrechen statt rebuilden
+#   convert_fm_xml.sh --all                                   # Alias for --batch
+#   convert_fm_xml.sh --test                                  # Test mode (xml-test/ → fm_test.duckdb)
+#   convert_fm_xml.sh --test --fail-fast                      # Test mode (stop on first error)
+#
+# Flags (alle optional, beliebig kombinierbar):
+#   --fail-fast       Stop on first error (Batch/Test mode only)
+#   --force-rebuild   DB vor dem Import löschen und komplett neu aufbauen
+#   --no-auto-heal    Bei Schema-Drift NICHT auto-rebuilden, sondern abbrechen
 #
 # Exit codes:
 #   0 - Success
@@ -30,6 +42,7 @@
 #   3 - DuckDB conversion failed
 #   4 - Unsupported XML format (e.g. legacy FMDynamicTemplate)
 #   5 - XML preprocessing failed
+#   6 - Schema-Drift erkannt (Single-Mode oder --no-auto-heal): manueller Rebuild nötig
 
 # Constants
 PROJECT_ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd))"
@@ -56,29 +69,58 @@ if [ -z "$DUCKDB_BIN" ]; then
     exit 1
 fi
 
-# Detect processing mode and --test flag
-MODE="single"
+# Argument-Parsing: Mode + Flags in beliebiger Reihenfolge.
+# Genau ein positionelles Argument (Filename) ODER ein Mode-Flag wird erwartet.
+MODE=""
 FILENAME=""
 FAIL_FAST=false
 TEST_MODE=false
+FORCE_REBUILD=false
+NO_AUTO_HEAL=false
 
-if [[ "$1" == "--test" ]]; then
-    MODE="batch"
-    TEST_MODE=true
-    if [[ "$2" == "--fail-fast" ]]; then
-        FAIL_FAST=true
-    fi
-elif [[ "$1" == "--batch" ]] || [[ "$1" == "--all" ]]; then
-    MODE="batch"
-    if [[ "$2" == "--fail-fast" ]]; then
-        FAIL_FAST=true
-    fi
-elif [ -n "$1" ]; then
-    MODE="single"
-    FILENAME="$1"
-else
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --test)
+            MODE="batch"
+            TEST_MODE=true
+            shift
+            ;;
+        --batch|--all)
+            MODE="batch"
+            shift
+            ;;
+        --fail-fast)
+            FAIL_FAST=true
+            shift
+            ;;
+        --force-rebuild)
+            FORCE_REBUILD=true
+            shift
+            ;;
+        --no-auto-heal)
+            NO_AUTO_HEAL=true
+            shift
+            ;;
+        --*)
+            echo "ERROR: Unknown flag: $1"
+            echo "Usage: $0 <xml-filename> [--force-rebuild] | --batch [--fail-fast] [--force-rebuild] [--no-auto-heal] | --test [--fail-fast] [--force-rebuild]"
+            exit 1
+            ;;
+        *)
+            if [ -n "$FILENAME" ]; then
+                echo "ERROR: Multiple filenames provided ('$FILENAME', '$1'). Use --batch to process all files."
+                exit 1
+            fi
+            FILENAME="$1"
+            MODE="single"
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$MODE" ]; then
     echo "ERROR: No argument provided"
-    echo "Usage: $0 <xml-filename> | --batch [--fail-fast] | --all [--fail-fast] | --test [--fail-fast]"
+    echo "Usage: $0 <xml-filename> [--force-rebuild] | --batch [--fail-fast] [--force-rebuild] [--no-auto-heal] | --test [--fail-fast] [--force-rebuild]"
     exit 1
 fi
 
@@ -150,6 +192,141 @@ sync_to_rest_api() {
     fi
 
     return 0
+}
+
+# ============================================================================
+# Schema-Versionierung & Auto-Heal
+# Siehe project/prd_schema_versioning_auto_heal.md
+# ============================================================================
+
+# Berechnet MD5 über die übergebenen Dateien (cross-platform: macOS+Linux).
+compute_files_hash() {
+    local files=("$@")
+    if command -v md5sum &>/dev/null; then
+        cat "${files[@]}" 2>/dev/null | md5sum | awk '{print $1}'
+    elif command -v md5 &>/dev/null; then
+        cat "${files[@]}" 2>/dev/null | md5 -q
+    else
+        cat "${files[@]}" 2>/dev/null | shasum -a 256 | cut -c1-32
+    fi
+}
+
+# Liest Schema-Marker aus dem SQL-Template-Header.
+# Setzt SCHEMA_VERSION_EXPECTED und SCHEMA_HASH_EXPECTED (global).
+read_template_schema_info() {
+    SCHEMA_VERSION_EXPECTED=$(grep -m1 '^-- @SCHEMA_VERSION ' "$SQL_TEMPLATE" | awk '{print $3}')
+
+    local hash_files_raw
+    hash_files_raw=$(grep -m1 '^-- @SCHEMA_HASH_FILES ' "$SQL_TEMPLATE" | cut -d' ' -f3-)
+
+    if [ -z "$SCHEMA_VERSION_EXPECTED" ] || [ -z "$hash_files_raw" ]; then
+        echo "ERROR: SQL-Template fehlt @SCHEMA_VERSION oder @SCHEMA_HASH_FILES im Header."
+        echo "       Datei: $SQL_TEMPLATE"
+        exit 1
+    fi
+
+    # Hash-Files relativ zum Projekt-Root auflösen
+    local -a abs_paths=()
+    local f
+    for f in $hash_files_raw; do
+        abs_paths+=("$PROJECT_ROOT/$f")
+        if [ ! -f "$PROJECT_ROOT/$f" ]; then
+            echo "ERROR: SQL-Template-Referenz fehlt: $PROJECT_ROOT/$f"
+            exit 1
+        fi
+    done
+
+    SCHEMA_HASH_EXPECTED=$(compute_files_hash "${abs_paths[@]}")
+}
+
+# Liest den aktuellen Schema-Stand aus der DB (falls vorhanden).
+# Setzt SCHEMA_VERSION_DB und SCHEMA_HASH_DB (global) — leer wenn unbekannt.
+read_db_schema_info() {
+    SCHEMA_VERSION_DB=""
+    SCHEMA_HASH_DB=""
+
+    if [ ! -f "$DB_FILE" ]; then
+        return 0
+    fi
+
+    local row
+    row=$("$DUCKDB_BIN" -readonly "$DB_FILE" -csv -noheader -c \
+        "SELECT Schema_Version, Schema_Hash FROM SchemaInfo ORDER BY Schema_Built_At DESC LIMIT 1" \
+        2>/dev/null) || row=""
+
+    if [ -n "$row" ]; then
+        SCHEMA_VERSION_DB=$(echo "$row" | cut -d',' -f1)
+        SCHEMA_HASH_DB=$(echo "$row" | cut -d',' -f2)
+    fi
+}
+
+# Detection-Logik. Setzt SCHEMA_ACTION und SCHEMA_REASON (global).
+# Mögliche Werte: fresh_build | incremental | rebuild | warn
+compute_schema_state() {
+    read_template_schema_info
+    read_db_schema_info
+
+    if [ ! -f "$DB_FILE" ]; then
+        SCHEMA_ACTION="fresh_build"
+        SCHEMA_REASON="DB-Datei existiert nicht — normaler Erst-Import"
+    elif [ -z "$SCHEMA_VERSION_DB" ]; then
+        SCHEMA_ACTION="rebuild"
+        SCHEMA_REASON="DB ohne SchemaInfo-Tabelle (Pre-Versioning-Stand oder Datei korrupt)"
+    elif [ "$SCHEMA_VERSION_DB" != "$SCHEMA_VERSION_EXPECTED" ]; then
+        SCHEMA_ACTION="rebuild"
+        SCHEMA_REASON="Schema-Version $SCHEMA_VERSION_DB → $SCHEMA_VERSION_EXPECTED"
+    elif [ "$SCHEMA_HASH_DB" != "$SCHEMA_HASH_EXPECTED" ]; then
+        SCHEMA_ACTION="warn"
+        SCHEMA_REASON="Schema-Hash drift erkannt (Version unverändert) — Rebuild empfohlen via --force-rebuild"
+    else
+        SCHEMA_ACTION="incremental"
+        SCHEMA_REASON="Schema OK (v$SCHEMA_VERSION_DB)"
+    fi
+}
+
+# Schreibt einen Auto-Heal-Block ins Batch-Log.
+log_schema_action() {
+    local logfile="$1"
+    [ -z "$logfile" ] && return 0
+    [ ! -f "$logfile" ] && return 0
+
+    {
+        echo ""
+        echo "================================================================================"
+        echo "Schema Auto-Heal Detection"
+        echo "================================================================================"
+        echo "DB Version (before):   ${SCHEMA_VERSION_DB:-<none>}"
+        echo "DB Hash    (before):   ${SCHEMA_HASH_DB:-<none>}"
+        echo "Template Version:      $SCHEMA_VERSION_EXPECTED"
+        echo "Template Hash:         $SCHEMA_HASH_EXPECTED"
+        echo "Reason:                $SCHEMA_REASON"
+        echo "Action:                $SCHEMA_ACTION_EXECUTED"
+        echo "--------------------------------------------------------------------------------"
+        echo ""
+    } >> "$logfile"
+}
+
+# Löscht die DB-Datei (mit Bestätigung im TTY, ohne im non-interaktiven Modus).
+# $1: Grund (für Nutzer-Meldung)
+delete_db_for_rebuild() {
+    local reason="$1"
+    if [ ! -f "$DB_FILE" ]; then
+        return 0
+    fi
+
+    if [[ -t 0 ]] && ! $FORCE_REBUILD; then
+        echo ""
+        echo "  Grund: $reason"
+        echo "  Lösche $DB_FILE und baue neu auf? [y/N] "
+        read -r CONFIRM
+        if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+            echo "  Abgebrochen."
+            exit 6
+        fi
+    fi
+
+    rm -f "$DB_FILE"
+    echo "  ✓ DB gelöscht: $DB_FILE"
 }
 
 # ============================================================================
@@ -248,11 +425,16 @@ process_single_file() {
     echo "  Preprocessed: replaced_cr=$PRE_CR_COUNT stripped_invalid=$PRE_STRIPPED"
     XML_FILE="$PREPROCESSED_FILE"
 
-    # 6. Create temporary SQL script with correct filename.
+    # 6. Create temporary SQL script with correct filename + schema markers.
     # Das SQL-Template liest FM_XML_DIR per getenv() — wir setzen sie unten beim
-    # duckdb-Aufruf auf $TEMP_DIR. Nur der fm_xml-Dateiname wird per sed ersetzt.
+    # duckdb-Aufruf auf $TEMP_DIR. Per sed ersetzen wir:
+    #   - fm_xml         → aktueller XML-Dateiname
+    #   - schema_version → aus @SCHEMA_VERSION-Header (single source of truth)
+    #   - schema_hash    → MD5 über @SCHEMA_HASH_FILES (zur Build-Zeit berechnet)
     local TEMP_SQL="$TEMP_DIR/convert.sql"
     sed -e "s/SET VARIABLE fm_xml = '.*';/SET VARIABLE fm_xml = '$XML_FILE';/" \
+        -e "s/SET VARIABLE schema_version = '.*';/SET VARIABLE schema_version = '$SCHEMA_VERSION_EXPECTED';/" \
+        -e "s/SET VARIABLE schema_hash = '.*';/SET VARIABLE schema_hash = '$SCHEMA_HASH_EXPECTED';/" \
         "$SQL_TEMPLATE" > "$TEMP_SQL"
 
     # 7. Execute DuckDB conversion
@@ -283,6 +465,78 @@ process_single_file() {
 # ============================================================================
 # Main Script Execution
 # ============================================================================
+
+# ----------------------------------------------------------------------------
+# Schema-Detection & Auto-Heal (vor jedem Import)
+# Logik gemäß project/prd_schema_versioning_auto_heal.md §5.3-§5.5.
+# ----------------------------------------------------------------------------
+compute_schema_state
+SCHEMA_ACTION_EXECUTED="$SCHEMA_ACTION"
+
+echo "========================================="
+echo "Schema-Detection"
+echo "========================================="
+echo "Template Version:  $SCHEMA_VERSION_EXPECTED"
+echo "Template Hash:     ${SCHEMA_HASH_EXPECTED:0:12}…"
+if [ -n "$SCHEMA_VERSION_DB" ]; then
+    echo "DB Version:        $SCHEMA_VERSION_DB"
+    echo "DB Hash:           ${SCHEMA_HASH_DB:0:12}…"
+else
+    echo "DB Version:        <keine SchemaInfo / DB existiert nicht>"
+fi
+echo "Action:            $SCHEMA_ACTION"
+echo "Reason:            $SCHEMA_REASON"
+
+# 1. --force-rebuild überstimmt alle Detection-Ergebnisse
+if $FORCE_REBUILD && [ -f "$DB_FILE" ]; then
+    echo ""
+    echo "  ⚠ --force-rebuild aktiv: DB wird vor dem Import gelöscht"
+    delete_db_for_rebuild "--force-rebuild explizit gesetzt"
+    SCHEMA_ACTION_EXECUTED="force_rebuild"
+fi
+
+# 2. Schema-Drift behandeln
+if [ "$SCHEMA_ACTION" = "rebuild" ] && ! $FORCE_REBUILD; then
+    if $NO_AUTO_HEAL; then
+        echo ""
+        echo "ERROR: Schema-Drift erkannt und --no-auto-heal aktiv → Abbruch."
+        echo "       $SCHEMA_REASON"
+        echo ""
+        echo "       Manueller Rebuild: bash \"$0\" --batch --force-rebuild"
+        exit 6
+    fi
+
+    if [[ "$MODE" == "single" ]]; then
+        echo ""
+        echo "ERROR: Schema-Drift erkannt — DB ist nicht kompatibel mit aktuellen SQL-Templates."
+        echo "       DB-Version: ${SCHEMA_VERSION_DB:-<none>}   Template-Version: $SCHEMA_VERSION_EXPECTED"
+        echo "       Reason: $SCHEMA_REASON"
+        echo ""
+        echo "Auto-Heal ist im Single-File-Modus deaktiviert (würde alle anderen Dateien"
+        echo "aus der DB verlieren). Wähle einen der folgenden Wege:"
+        echo ""
+        echo "  Empfohlen:  bash \"$0\" --batch --force-rebuild"
+        echo "              (löscht DB, importiert alle XML-Dateien aus xml/ neu)"
+        echo ""
+        echo "  Manuell:    rm \"$DB_FILE\" && bash \"$0\" \"$FILENAME\""
+        echo "              (Vorsicht: andere Dateien sind dann nicht mehr in der DB)"
+        exit 6
+    fi
+
+    # Batch-Modus: Auto-Heal durchführen
+    echo ""
+    echo "  ⚠ Auto-Heal: DB wird gelöscht und im Batch-Modus neu aufgebaut"
+    delete_db_for_rebuild "$SCHEMA_REASON"
+    SCHEMA_ACTION_EXECUTED="auto_heal_rebuild"
+fi
+
+# 3. Warn-Pfad (Hash-Drift ohne Versions-Bump)
+if [ "$SCHEMA_ACTION" = "warn" ]; then
+    echo ""
+    echo "  ⚠ WARNING: $SCHEMA_REASON"
+fi
+
+echo ""
 
 if [[ "$MODE" == "batch" ]]; then
     # ========================================================================
@@ -322,6 +576,16 @@ FileMaker XML Batch Import Log
 ================================================================================
 Start Time: $(date '+%Y-%m-%d %H:%M:%S')
 Total Files: $TOTAL
+Schema Version (Template): $SCHEMA_VERSION_EXPECTED
+Schema Action: $SCHEMA_ACTION_EXECUTED ($SCHEMA_REASON)
+EOF
+
+    # Bei Auto-Heal/Force-Rebuild: detaillierten Block ins Log schreiben
+    if [[ "$SCHEMA_ACTION_EXECUTED" =~ ^(auto_heal_rebuild|force_rebuild)$ ]]; then
+        log_schema_action "$LOG_FILE"
+    fi
+
+    cat >> "$LOG_FILE" << EOF
 
 --------------------------------------------------------------------------------
 Per-File Results:

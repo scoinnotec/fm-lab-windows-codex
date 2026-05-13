@@ -18,7 +18,11 @@ Use this skill when you need to convert a FileMaker XML export (created via Save
 The skill accepts **one required parameter**:
 - **XML filename** - The name of the XML file in the `xml/` directory (e.g., "MyDatabase.xml")
 - **--batch** or **--all** - Process all XML files in the `xml/` directory
-- **--fail-fast** - Optional flag for batch mode to stop immediately on first error (for debugging)
+
+Optional flags (alle beliebig kombinierbar):
+- **--fail-fast** - Stop immediately on first error (batch/test mode only)
+- **--force-rebuild** - Löscht die DB vor dem Import und baut komplett neu auf
+- **--no-auto-heal** - Bei erkannter Schema-Drift abbrechen statt automatisch zu rebuilden
 
 **Single-File Mode:**
 ```bash
@@ -35,9 +39,29 @@ convert-xml --batch
 convert-xml --batch --fail-fast
 ```
 
+**Force Rebuild (Recovery nach Schema-Update oder DB-Inkonsistenz):**
+```bash
+convert-xml --batch --force-rebuild
+```
+
 File paths are fixed:
 - Input: `xml/` directory
 - Output: `db/fm_catalog.duckdb`
+
+## Schema-Versionierung & Auto-Heal
+
+Vor jedem Import vergleicht das Skript die `@SCHEMA_VERSION` aus
+[sql/convert_xml.sql](../../../sql/convert_xml.sql) mit der in der
+DB-Tabelle `SchemaInfo` persistierten Version. Möglichkeiten:
+
+| Detection-Action | Verhalten Default                                                                   | Mit `--force-rebuild`    | Mit `--no-auto-heal`     |
+|------------------|-------------------------------------------------------------------------------------|--------------------------|--------------------------|
+| `fresh_build`    | DB existiert nicht → normaler Import                                                | DB löschen + Import      | wie Default              |
+| `incremental`    | Schema OK → normaler Import                                                         | DB löschen + Rebuild     | wie Default              |
+| `rebuild`        | Batch: Auto-Heal (DB löschen, alle XMLs neu importieren). Single: Abbruch, Exit 6   | DB löschen + Rebuild     | Abbruch, Exit 6          |
+| `warn`           | Hash-Drift ohne Versions-Bump: Warnung loggen, normaler Import                      | DB löschen + Rebuild     | wie Default + Warnung    |
+
+Siehe [project/prd_schema_versioning_auto_heal.md](../../../project/prd_schema_versioning_auto_heal.md) für die vollständige Spezifikation.
 
 ## Workflow
 
@@ -116,6 +140,11 @@ Suggest checking file integrity.
 
 ### Unsupported XML Format (Skipped)
 Files using the legacy `FMDynamicTemplate` root element (SaXML v2.0.0.0, FileMaker 18.x) are automatically skipped with a warning. Only `FMSaveAsXML` (SaXML v2.1.0.0+, FileMaker 19+) is supported.
+
+### Schema-Drift (Exit 6)
+Wird ausgelöst, wenn die DB mit einer älteren `@SCHEMA_VERSION` gebaut wurde als das aktuelle SQL-Template und der User keinen Auto-Heal-Pfad gewählt hat:
+- **Single-File-Modus mit Drift** → Automatischer Abbruch (Auto-Heal würde andere Dateien aus der DB verlieren). Empfehlung: `convert-xml --batch --force-rebuild`.
+- **`--no-auto-heal`-Flag aktiv** → Manueller Eingriff erwartet.
 
 ### DuckDB Conversion Failed
 If DuckDB fails, possible causes:
