@@ -12,6 +12,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), version
 
 ---
 
+## [0.6.9] — 2026-05-13
+
+Reference-DB distribution via `install-claris-docs` and consolidation of the function-reference skills.
+
+- **`install-claris-docs`** now copies the REST-API reference index DB (`fm_reference.duckdb`) into `docs/claris-help/` — slug-based lookups for functions and ScriptSteps
+- **`filemaker-function-reference`** skill rewritten: uses the local DuckDB reference index (373 functions, 206 ScriptSteps, 19 + 13 categories with localized names, signatures, parameters, URL slugs) instead of the legacy SQLite docset; supports multi-language lookups and falls back to the online Claris Help when a slug is missing locally
+- **`install-filemaker-docs`** skill marked **deprecated** — replaced by `install-claris-docs` (current Claris Online Help, 11 languages, integrated index DB); kept for backwards compatibility but no longer used by any downstream skill
+
+---
+
+## [0.6.8] — 2026-05-13
+
+Schema-drift detection and auto-healing for the XML import — survives breaking SQL template changes after a `git pull`.
+
+- **Schema versioning** via `@SCHEMA_VERSION` marker in `sql/convert_xml.sql`, persisted in a new `SchemaInfo` table inside the DuckDB catalog
+- **Auto-heal (default)** in batch mode: when the import detects schema drift against the existing DB, it automatically drops the DB and rebuilds from all XML files in `xml/`
+- **`--force-rebuild`** flag: manual full rebuild, useful after arbitrary inconsistencies or recovery scenarios
+- **`--no-auto-heal`** flag: drift only reported, no automatic rebuild (intended for CI and debugging)
+- **Single-file mode**: aborts with exit code `6` on drift (auto-heal would discard other files in the catalog) and points the user to `convert-xml --batch --force-rebuild`
+- DBs without a version marker are treated as outdated and trigger a rebuild
+- Clear diagnostics replace the previous cryptic mid-run DuckDB errors when a `git pull` introduced template changes
+
+---
+
 ## [0.6.7] — 2026-05-13
 
 Central reference database, pseudo object types, token-based code rendering, cross-reference highlight, and full dark mode.

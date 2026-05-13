@@ -493,6 +493,8 @@ Weitere Beispiele findest Du in der Datei `sql/sample_queries.sql`.
 
 ## Zusatzinformationen abrufen
 
+Wenn der Entwickler nach nativen FileMaker-Funktionen oder ScriptSteps fragt (z.B. „Was macht `MusterAnzahl`?", „Welche JSON-Funktionen gibt es?"), verwende Deinen Skill `filemaker-function-reference` um Beschreibungen abzufragen. Der Skill nutzt den DuckDB-Reference-Index `docs/claris-help/fm_reference.duckdb` für mehrsprachige Lookups (Funktions-/ScriptStep-Namen in DE, EN, ES, FR, IT, JA, KO, NL, PT, SV, ZH-Hans) und lädt detaillierte HTML-Dokumentation aus dem lokalen Claris-Help-Mirror `docs/claris-help/<lang>/content/` bzw. — als Fallback — von `help.claris.com` online.
+
 Wenn der Entwickler nach MBS Funktionen fragt, verwende Deinen Skill `mbs-function-reference` um Beschreibungen zu den Funktionen abzufragen.
 
 Wenn Du bei der Erstellung oder Optimierung von SQL-Queries unsicher bist, ob DuckDB eine bestimmte Funktion oder Syntax unterstützt, verwende den Skill `duckdb-skills:duckdb-docs` zur Recherche.
