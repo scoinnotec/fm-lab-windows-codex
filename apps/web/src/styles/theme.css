@@ -1,0 +1,147 @@
+/* ==========================================================================
+ * Theme-Tokens — semantisch benannt, Theme-agnostisch verwendbar.
+ * Default ist Light. Dark wird über [data-theme="dark"] aktiviert.
+ * ========================================================================== */
+
+/* ---------- LIGHT (Default) ---------- */
+:root,
+:root[data-theme="light"] {
+  /* Surfaces */
+  --color-bg-app:           #ffffff;
+  --color-bg-surface:       #f9f9f9;
+  --color-bg-surface-2:     #f0f0f0;
+  --color-bg-elevated:      #ffffff;
+  --color-bg-input:         #ffffff;
+  --color-bg-canvas:        #f7f7f7;
+
+  /* Text */
+  --color-text-primary:     #213547;
+  --color-text-secondary:   #555555;
+  --color-text-muted:       #767676;
+  --color-text-disabled:    #aaaaaa;
+  --color-text-inverse:     #ffffff;
+
+  /* Borders & Dividers */
+  --color-border:           #e0e0e0;
+  --color-border-strong:    #c0c0c0;
+  --color-border-subtle:    #ededed;
+  --color-divider:          #e8e8e8;
+
+  /* Accent (Brand) */
+  --color-accent:           #646cff;
+  --color-accent-hover:     #535bf2;
+  --color-accent-active:    #4248c4;
+  --color-accent-soft-bg:   #eef0ff;
+  --color-accent-soft-fg:   #4248c4;
+  --color-accent-ring:      rgba(100, 108, 255, 0.45);
+
+  /* Feedback */
+  --color-success-bg:       #e7f7ea;
+  --color-success-fg:       #166534;
+  --color-success-border:   #86d99c;
+  --color-warning-bg:       #fff8e1;
+  --color-warning-fg:       #7a5c00;
+  --color-warning-border:   #ffd54f;
+  --color-error-bg:         #fee;
+  --color-error-fg:         #a00;
+  --color-error-border:     #fcc;
+  --color-info-bg:          #eaf2ff;
+  --color-info-fg:          #1a4f99;
+  --color-info-border:      #b8d4ff;
+
+  /* Hover/Selection */
+  --color-hover-bg:         rgba(100, 108, 255, 0.06);
+  --color-selected-bg:      #eef0ff;
+  --color-focus-ring:       #646cff;
+
+  /* Code/mono surfaces */
+  --color-code-bg:          #f5f5f5;
+  --color-code-fg:          #333333;
+
+  /* Overlays */
+  --shadow-sm:              0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md:              0 4px 12px rgba(0, 0, 0, 0.10);
+  --shadow-lg:              0 6px 20px rgba(0, 0, 0, 0.14);
+  --color-overlay:          rgba(0, 0, 0, 0.30);
+
+  /* Badge-Sub-Tokens (FolderTree) */
+  --color-badge-folder-bg:  #fff3cd;
+  --color-badge-folder-fg:  #7a5e10;
+  --color-badge-script-bg:  #dde7f5;
+  --color-badge-script-fg:  #1f4470;
+  --color-badge-layout-bg:  #dcefdf;
+  --color-badge-layout-fg:  #2a5a3a;
+  --color-badge-cf-bg:      #f5dceb;
+  --color-badge-cf-fg:      #5a2f4f;
+}
+
+/* ---------- DARK ---------- */
+:root[data-theme="dark"] {
+  /* Surfaces */
+  --color-bg-app:           #0f1115;
+  --color-bg-surface:       #1a1d23;
+  --color-bg-surface-2:     #22262e;
+  --color-bg-elevated:      #232831;
+  --color-bg-input:         #14171c;
+  --color-bg-canvas:        #16191f;
+
+  /* Text */
+  --color-text-primary:     #e6e8ec;
+  --color-text-secondary:   #b8bdc7;
+  --color-text-muted:       #8a8f99;
+  --color-text-disabled:    #5a5f68;
+  --color-text-inverse:     #0f1115;
+
+  /* Borders & Dividers */
+  --color-border:           #2e333c;
+  --color-border-strong:    #444a55;
+  --color-border-subtle:    #25292f;
+  --color-divider:          #292d34;
+
+  /* Accent — gleiche Hue, im Dark leicht heller für Kontrast */
+  --color-accent:           #8a91ff;
+  --color-accent-hover:     #a3a9ff;
+  --color-accent-active:    #c5caff;
+  --color-accent-soft-bg:   #1d2050;
+  --color-accent-soft-fg:   #c5caff;
+  --color-accent-ring:      rgba(138, 145, 255, 0.55);
+
+  /* Feedback */
+  --color-success-bg:       #122a1a;
+  --color-success-fg:       #7ee0a1;
+  --color-success-border:   #2f6a45;
+  --color-warning-bg:       #2a2410;
+  --color-warning-fg:       #ffd366;
+  --color-warning-border:   #6d5612;
+  --color-error-bg:         #2a1414;
+  --color-error-fg:         #ff8a8a;
+  --color-error-border:     #6a2424;
+  --color-info-bg:          #122036;
+  --color-info-fg:          #8ab8ff;
+  --color-info-border:      #2a4a78;
+
+  /* Hover/Selection */
+  --color-hover-bg:         rgba(138, 145, 255, 0.08);
+  --color-selected-bg:      #1d2050;
+  --color-focus-ring:       #8a91ff;
+
+  /* Code/mono surfaces */
+  --color-code-bg:          #0d0d0d;
+  --color-code-fg:          #d4d4d4;
+
+  /* Overlays */
+  --shadow-sm:              0 1px 2px rgba(0, 0, 0, 0.40);
+  --shadow-md:              0 4px 12px rgba(0, 0, 0, 0.50);
+  --shadow-lg:              0 6px 20px rgba(0, 0, 0, 0.60);
+  --color-overlay:          rgba(0, 0, 0, 0.55);
+
+  /* Badge-Sub-Tokens (FolderTree) */
+  --color-badge-folder-bg:  #5a4a20;
+  --color-badge-folder-fg:  #f0c060;
+  --color-badge-script-bg:  #1f3a5f;
+  --color-badge-script-fg:  #88bbff;
+  --color-badge-layout-bg:  #2f5a3a;
+  --color-badge-layout-fg:  #88dd99;
+  --color-badge-cf-bg:      #5a2f4f;
+  --color-badge-cf-fg:      #dd99cc;
+}

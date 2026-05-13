@@ -12,7 +12,7 @@
 }
 
 .settings-back {
-  color: #646cff;
+  color: var(--color-accent);
   text-decoration: none;
   font-size: 0.9rem;
 }
@@ -30,15 +30,15 @@
 .settings-empty {
   padding: 2rem;
   text-align: center;
-  color: #888;
+  color: var(--color-text-muted);
 }
 
 .settings-error {
   padding: 1rem;
-  background: #fee;
-  border: 1px solid #fcc;
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
   border-radius: 4px;
-  color: #a00;
+  color: var(--color-error-fg);
 }
 
 .plugin-list {
@@ -48,9 +48,9 @@
 }
 
 .plugin-card {
-  border: 1px solid #ddd;
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-bg-elevated);
   overflow: hidden;
 }
 
@@ -66,16 +66,16 @@
 }
 
 .plugin-card-header:hover {
-  background-color: rgba(100, 108, 255, 0.06);
+  background-color: var(--color-hover-bg);
 }
 
 .plugin-card-header:focus-visible {
-  outline: 2px solid #646cff;
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: -2px;
 }
 
 .plugin-card.expanded .plugin-card-header {
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .plugin-card-title {
@@ -87,7 +87,7 @@
 .plugin-card-chevron {
   display: inline-block;
   width: 0.9rem;
-  color: #888;
+  color: var(--color-text-muted);
   font-size: 0.85rem;
   transform: translateY(-1px);
 }
@@ -95,11 +95,12 @@
 .plugin-card-title h2 {
   margin: 0;
   font-size: 1.15rem;
+  color: var(--color-text-primary);
 }
 
 .plugin-card-version {
   font-size: 0.8rem;
-  color: #888;
+  color: var(--color-text-muted);
   font-family: monospace;
 }
 
@@ -109,10 +110,11 @@
   gap: 0.4rem;
   cursor: pointer;
   font-size: 0.9rem;
+  color: var(--color-text-secondary);
 }
 
 .plugin-card-description {
-  color: #555;
+  color: var(--color-text-secondary);
   margin: 0;
   padding: 0.75rem 1.25rem 0 1.25rem;
   font-size: 0.9rem;
@@ -121,11 +123,11 @@
 .plugin-card-restart-badge {
   margin: 0.75rem 1.25rem 0 1.25rem;
   padding: 0.5rem 0.75rem;
-  background: #fff8e1;
-  border: 1px solid #ffd54f;
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
   border-radius: 4px;
   font-size: 0.85rem;
-  color: #7a5c00;
+  color: var(--color-warning-fg);
 }
 
 .plugin-card-settings {
@@ -136,7 +138,7 @@
 .plugin-card-settings h3 {
   margin: 0 0 0.75rem 0;
   font-size: 0.95rem;
-  color: #444;
+  color: var(--color-text-primary);
 }
 
 .plugin-card-field {
@@ -148,11 +150,11 @@
 
 .plugin-card-field label {
   font-size: 0.85rem;
-  color: #333;
+  color: var(--color-text-primary);
 }
 
 .plugin-card-field-desc {
-  color: #888;
+  color: var(--color-text-muted);
   font-weight: normal;
 }
 
@@ -160,10 +162,12 @@
 .plugin-card-field input[type="number"],
 .plugin-card-field select {
   padding: 0.4rem 0.6rem;
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-border-strong);
   border-radius: 4px;
   font-family: inherit;
   font-size: 0.9rem;
+  background: var(--color-bg-input);
+  color: var(--color-text-primary);
 }
 
 .plugin-card-actions {
@@ -172,8 +176,8 @@
 
 .plugin-card-save {
   padding: 0.5rem 1rem;
-  background: #646cff;
-  color: #fff;
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
   border: none;
   border-radius: 4px;
   font-family: inherit;
@@ -181,57 +185,20 @@
 }
 
 .plugin-card-save:disabled {
-  background: #ccc;
+  background: var(--color-text-disabled);
   cursor: not-allowed;
 }
 
 .plugin-card-save:not(:disabled):hover {
-  background: #535bf2;
+  background: var(--color-accent-hover);
 }
 
 .plugin-card-error {
   margin: 0.75rem 1.25rem 1rem 1.25rem;
   padding: 0.5rem 0.75rem;
-  background: #fee;
-  border: 1px solid #fcc;
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
   border-radius: 4px;
-  color: #a00;
+  color: var(--color-error-fg);
   font-size: 0.85rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  .plugin-card {
-    background: #1a1a1a;
-    border-color: #333;
-  }
-
-  .plugin-card-description {
-    color: #aaa;
-  }
-
-  .plugin-card.expanded .plugin-card-header {
-    border-bottom-color: #333;
-  }
-
-  .plugin-card-header:hover {
-    background-color: rgba(100, 108, 255, 0.12);
-  }
-
-  .plugin-card-settings h3,
-  .plugin-card-field label {
-    color: #ddd;
-  }
-
-  .plugin-card-field input,
-  .plugin-card-field select {
-    background: #111;
-    color: #eee;
-    border-color: #444;
-  }
-
-  .plugin-card-restart-badge {
-    background: #2a2410;
-    border-color: #5a4a10;
-    color: #ffd54f;
-  }
 }

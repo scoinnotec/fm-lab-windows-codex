@@ -8,6 +8,7 @@ const adminRoutes = require('./admin.routes');
 const pluginsRoutes = require('./plugins.routes');
 const pluginDocsRoutes = require('./plugin-docs.routes');
 const relationshipGraphRoutes = require('./relationshipGraph.routes');
+const referenceRoutes = require('./reference.routes');
 const { loadPlugins } = require('../plugins/loader');
 
 /**
@@ -35,6 +36,9 @@ router.use('/', pluginDocsRoutes);
 
 // Relationship Graph (/api/relationship-graph/:fileName)
 router.use('/', relationshipGraphRoutes);
+
+// Reference-DB (Script Steps + Functions + Claris-Hilfe-Mirror)
+router.use('/', referenceRoutes);
 
 // Plugin routes (dynamically discovered)
 loadPlugins(router);

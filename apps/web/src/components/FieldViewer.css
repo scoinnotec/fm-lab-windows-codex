@@ -1,0 +1,45 @@
+/* Feld-spezifische Ergänzungen über CustomFunctionViewer.css.
+ * .fm-field erbt Hintergrund/Border/Padding von .fm-customfunction. */
+
+.fm-field-table {
+  color: var(--color-text-muted);
+  font-weight: normal;
+}
+
+.fm-field-props {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 0.9rem;
+  row-gap: 0.2rem;
+  margin: 0 0 0.6rem 0;
+  padding: 0.2rem 0 0.5rem 0;
+  font-size: 0.82rem;
+  border-bottom: 1px solid var(--color-border-strong);
+}
+
+.fm-field-props dt {
+  color: var(--color-text-muted);
+  font-weight: normal;
+}
+
+.fm-field-props dd {
+  margin: 0;
+  color: var(--color-text-primary);
+}
+
+.fm-field-comment {
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+.fm-field-formula-label {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.2rem;
+}
+
+.fm-field-formula .fm-customfunction-body {
+  padding-top: 0;
+}

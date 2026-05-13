@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useObjectDetail } from '../hooks/useObjectDetail';
+import { useRefOrigin } from '../hooks/useRefOrigin';
 import { ObjectHeader } from './ObjectHeader';
 import { HierarchyTree, type HierarchyTreeHandle } from './HierarchyTree';
 import { TypeDetail } from './TypeDetail';
@@ -8,6 +9,8 @@ import { DependencyGraph } from './DependencyGraph';
 import { Breadcrumbs } from './Breadcrumbs';
 import { LoadingSpinner } from './LoadingSpinner';
 import { ErrorMessage } from './ErrorMessage';
+import { ThemeToggle } from './ThemeToggle';
+import { RefOriginPill } from './RefOriginPill';
 import { useEscapeStack } from '../hooks/useEscapeStack';
 import { useUrlState } from '../hooks/useUrlState';
 import type { BreadcrumbItem, DetailViewTab } from '../types';
@@ -48,6 +51,13 @@ export const DetailView: React.FC = () => {
   const setActiveTab = useCallback((tab: DetailViewTab) => {
     setTabParam(tab);
   }, [setTabParam]);
+
+  // Cross-Reference Highlight (PRD prd_cross_references_hilite.md).
+  // `ref` lebt nur in der URL; useRefOrigin holt das Origin + alle Back-Reference-
+  // UUIDs im Destination-Container vom Backend und cached pro (dst, ref)-Paar.
+  const [refParam, setRefParam] = useUrlState<string>('ref', '');
+  const refOrigin = useRefOrigin(uuid, refParam || null);
+  const dismissRefOrigin = useCallback(() => setRefParam(''), [setRefParam]);
 
   const handleBack = () => {
     // Falls die DetailView per Direkt-Link/Bookmark geöffnet wurde, gibt es
@@ -118,7 +128,15 @@ export const DetailView: React.FC = () => {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'detail':
-        return <TypeDetail objectType={object.Object_Type} uuid={object.Object_UUID} />;
+        return (
+          <TypeDetail
+            objectType={object.Object_Type}
+            uuid={object.Object_UUID}
+            highlightUuids={refOrigin.matchUuids}
+            highlightText={refOrigin.origin?.name ?? null}
+            onClearRef={dismissRefOrigin}
+          />
+        );
       case 'references':
         return <HierarchyTree ref={hierarchyRef} references={references} />;
       case 'graph':
@@ -136,10 +154,23 @@ export const DetailView: React.FC = () => {
           &larr; Zurueck
         </button>
         <Breadcrumbs items={breadcrumbItems} />
+        <div style={{ marginLeft: 'auto' }}>
+          <ThemeToggle />
+        </div>
       </div>
 
       {/* Object header */}
       <ObjectHeader object={object} />
+
+      {/* Origin-Indikator-Pill (Cross-Reference Highlight) — nur sichtbar,
+          wenn ein `ref`-Parameter in der URL gesetzt ist. */}
+      {refParam && (
+        <RefOriginPill
+          state={refOrigin}
+          rawRef={refParam}
+          onDismiss={dismissRefOrigin}
+        />
+      )}
 
       {/* Sub-navigation tabs */}
       <nav className="detail-tab-nav" role="tablist" aria-label="Objekt-Ansichten">

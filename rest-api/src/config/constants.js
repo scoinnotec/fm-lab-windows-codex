@@ -30,7 +30,19 @@ const OBJECT_TYPES = [
   'ScriptFolder',
   'LayoutFolder',
   'RelationshipGraph',
+  'BuiltinFunction',
+  'PluginFunction',
+  'ScriptStepType',
+  'PluginComponent',
 ];
+
+/**
+ * Pseudo-Token-Types: synthetische Aggregat-Einträge, die Inline-Filter
+ * (?withUsage / ?withCategory / ?category / ?sort) und den /api/list/categories
+ * Endpoint unterstützen. PluginComponent ist bewusst NICHT enthalten — es
+ * ist selbst die Category-Ebene (vgl. PRD §1.3, §7.1).
+ */
+const PSEUDO_TOKEN_TYPES = ['ScriptStepType', 'BuiltinFunction', 'PluginFunction'];
 
 /**
  * Folder Pseudo-Types
@@ -71,6 +83,10 @@ const OBJECT_TYPE_MAP = {
   'scriptfolder': 'ScriptFolder',
   'layoutfolder': 'LayoutFolder',
   'relationshipgraph': 'RelationshipGraph',
+  'builtinfunction': 'BuiltinFunction',
+  'pluginfunction': 'PluginFunction',
+  'scriptsteptype': 'ScriptStepType',
+  'plugincomponent': 'PluginComponent',
 };
 
 /**
@@ -121,7 +137,28 @@ const ERROR_CODES = {
   FILE_NOT_FOUND: { code: 'FILE_NOT_FOUND', status: 404 },
   IMPORT_ERROR: { code: 'IMPORT_ERROR', status: 500 },
   INTERNAL_ERROR: { code: 'INTERNAL_ERROR', status: 500 },
+  REF_NOT_ATTACHED:    { code: 'REF_NOT_ATTACHED',    status: 503 },
+  REF_STEP_NOT_FOUND:  { code: 'REF_STEP_NOT_FOUND',  status: 404 },
+  REF_FUNCTION_NOT_FOUND: { code: 'REF_FUNCTION_NOT_FOUND', status: 404 },
+  REF_LANG_INVALID:    { code: 'REF_LANG_INVALID',    status: 400 },
+  REF_HELP_NOT_FOUND:  { code: 'REF_HELP_NOT_FOUND',  status: 404 },
 };
+
+/**
+ * Reference-DB: unterstützte Sprachen pro Domain.
+ * Steps haben 11 Sprachen (inkl. en + zh-Hans), Functions nur 9 (kein en, kein zh-Hans).
+ * Für Functions in 'en' liefert der Service `canonical_name` als Display-Name (siehe PRD §9.4).
+ */
+const REFERENCE_STEP_LANGUAGES     = ['en', 'de', 'es', 'fr', 'it', 'nl', 'pt', 'sv', 'ja', 'ko', 'zh-Hans'];
+const REFERENCE_FUNCTION_LANGUAGES = ['de', 'es', 'fr', 'it', 'nl', 'pt', 'sv', 'ja', 'ko'];
+const REFERENCE_CONTENT_LEVELS     = ['meta', 'summary', 'full'];
+
+/**
+ * Mapping DB-Sprachcode ↔ Mirror-Verzeichnis-Code. Die DB nutzt 'zh-Hans', der
+ * vom Skill `install-claris-docs` gepflegte Mirror verwendet 'zh' (URL-Segment
+ * der Claris-Site). Siehe PRD §5.13 und §9.9.
+ */
+const REFERENCE_LANG_TO_MIRROR_DIR = { 'zh-Hans': 'zh' };
 
 /**
  * Default Values
@@ -161,17 +198,21 @@ const MERMAID_DIRECTIONS = {
  * Used by /get-details endpoint to dispatch to type-specific detail views
  */
 const DETAIL_TEMPLATE_MAP = {
-  'Script':         'object_details_script',
-  'Layout':         'object_details_layout',
-  'LayoutObject':   'object_details_layoutobject',
-  'Field':          'object_details_field',
-  'BaseTable':      'object_details_basetable',
-  'CustomFunction': 'object_details_customfunction',
-  'ValueList':      'object_details_valuelist',
-  'Variable':       'object_details_variable',
-  'Folder':         'object_details_folder',
-  'ScriptFolder':   'object_details_folder',
-  'LayoutFolder':   'object_details_folder',
+  'Script':          'object_details_script',
+  'Layout':          'object_details_layout',
+  'LayoutObject':    'object_details_layoutobject',
+  'Field':           'object_details_field',
+  'BaseTable':       'object_details_basetable',
+  'CustomFunction':  'object_details_customfunction',
+  'ValueList':       'object_details_valuelist',
+  'Variable':        'object_details_variable',
+  'Folder':          'object_details_folder',
+  'ScriptFolder':    'object_details_folder',
+  'LayoutFolder':    'object_details_folder',
+  'BuiltinFunction': 'object_details_builtinfunction',
+  'PluginFunction':  'object_details_pluginfunction',
+  'ScriptStepType':  'object_details_scriptsteptype',
+  'PluginComponent': 'object_details_plugincomponent',
 };
 
 /**
@@ -188,6 +229,7 @@ const HTTP_STATUS = {
 module.exports = {
   OBJECT_TYPES,
   OBJECT_TYPE_MAP,
+  PSEUDO_TOKEN_TYPES,
   FOLDER_PSEUDO_TYPES,
   DETAIL_TEMPLATE_MAP,
   LINK_TYPES,
@@ -198,4 +240,8 @@ module.exports = {
   ERROR_CODES,
   DEFAULTS,
   HTTP_STATUS,
+  REFERENCE_STEP_LANGUAGES,
+  REFERENCE_FUNCTION_LANGUAGES,
+  REFERENCE_CONTENT_LEVELS,
+  REFERENCE_LANG_TO_MIRROR_DIR,
 };

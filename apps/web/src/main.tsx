@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { useFeatures, FeaturesContext } from './hooks/useFeatures';
+import './styles/theme.css';
 import './index.css';
 
 function Root() {

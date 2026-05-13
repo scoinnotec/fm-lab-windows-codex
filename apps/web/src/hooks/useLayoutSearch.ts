@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { LayoutObject } from './useLayoutData';
 import { useUrlState, stringSetCodec } from './useUrlState';
 
@@ -44,13 +45,32 @@ function buildSearchText(o: LayoutObject): string {
  *
  * Sortierung der Fundmenge entspricht der SVG-Render-Reihenfolge: (Nesting_Level, Object_ID).
  * Die Daten kommen bereits sortiert aus dem SQL-Template, deshalb reicht ein einfacher Filter.
+ *
+ * Cross-Reference Highlight (PRD prd_cross_references_hilite.md §7.2):
+ * `externalMatchUuids` injiziert eine Vor-Auswahl, die als weicher Filter wirkt,
+ * solange der User nicht selbst interagiert. Sobald der User aktiv sucht oder
+ * einen Typ-Filter aktiviert, wird der `?ref=`-Param ATOMAR im selben URL-Update
+ * mitentfernt — der Referenz-Modus war kontextuell, neue Interaktion beendet ihn.
+ *
+ * Warum atomar? Andernfalls würde der separate `setRefParam('')`-Call aus
+ * DetailView (anderes useSearchParams-Hook) mit dem Filter-`setSearchParams`
+ * kollidieren — beide Hook-Instanzen halten je eine eigene Memo-Closure auf
+ * `searchParams`, und der zweite Aufruf würde den Stand des ersten überschreiben.
  */
-export function useLayoutSearch(objects: LayoutObject[]): LayoutSearchAPI {
+export function useLayoutSearch(
+  objects: LayoutObject[],
+  externalMatchUuids?: Set<string> | null,
+  onUserInteraction?: () => void,
+): LayoutSearchAPI {
   // Such- und Filter-State liegt in der URL — Stack erhält den State beim
   // Zurück-Navigieren. selectedUuid bleibt transient (Cursor pro TAB-Schritt
   // soll nicht in jedem Render die URL fluten).
+  //
+  // Lesen via useUrlState, Schreiben für User-Interaktionen via setSearchParams
+  // direkt (atomarer Multi-Param-Update mit ref-Clear).
   const [query, setQueryState] = useUrlState<string>('q', '');
   const [activeTypes, setActiveTypes] = useUrlState<Set<string>>('types', EMPTY_TYPES, stringSetCodec);
+  const [, setSearchParams] = useSearchParams();
   const [selectedUuid, setSelectedUuid] = useState<string | null>(null);
 
   // Bei Layout-Wechsel: nur Selektion zurücksetzen — Suche/Filter bleiben durch
@@ -59,14 +79,27 @@ export function useLayoutSearch(objects: LayoutObject[]): LayoutSearchAPI {
     setSelectedUuid(null);
   }, [objects]);
 
+  // Stable empty-set Identität für externalMatchUuids, damit useMemo nicht
+  // bei jedem Render neue Refs sieht, wenn das Set extern leer übergeben wird.
+  const externalHasItems = !!(externalMatchUuids && externalMatchUuids.size > 0);
+
   const matches = useMemo<LayoutObject[]>(() => {
     const typeFiltered = activeTypes.size === 0
       ? objects
       : objects.filter(o => activeTypes.has(o.object_type));
-    if (query === '') return typeFiltered;
-    const q = query.toLowerCase();
-    return typeFiltered.filter(o => buildSearchText(o).includes(q));
-  }, [objects, activeTypes, query]);
+
+    let result = typeFiltered;
+    if (query !== '') {
+      const q = query.toLowerCase();
+      result = result.filter(o => buildSearchText(o).includes(q));
+    } else if (activeTypes.size === 0 && externalHasItems) {
+      // Ref-Vorauswahl wirkt NUR, solange weder Suche noch Typ-Filter aktiv sind.
+      // Sobald der User selbst filtert, gewinnt seine Wahl — der ref-Param wird
+      // zusätzlich im URL-Update mit entfernt (siehe runUserUpdate unten).
+      result = result.filter(o => externalMatchUuids!.has(o.object_uuid));
+    }
+    return result;
+  }, [objects, activeTypes, query, externalHasItems, externalMatchUuids]);
 
   const matchUuids = useMemo(() => {
     const s = new Set<string>();
@@ -88,38 +121,86 @@ export function useLayoutSearch(objects: LayoutObject[]): LayoutSearchAPI {
     }
   }, [matches, matchUuids, selectedUuid]);
 
-  const setQuery = useCallback((q: string) => {
-    setQueryState(q);
-  // Setter aus useUrlState ist stabil; lint-deps absichtlich entkoppeln.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Live-Ref auf externalHasItems, damit der atomare Setter den aktuellen Wert
+  // ohne Re-Bind sieht — sonst müsste jeder Callback bei jedem ref-Toggle neu
+  // erstellt werden.
+  const refActiveRef = useRef(externalHasItems);
+  refActiveRef.current = externalHasItems;
+  const interactionRef = useRef(onUserInteraction);
+  interactionRef.current = onUserInteraction;
 
-  const toggleType = useCallback((type: string) => {
-    setActiveTypes(prev => {
-      const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
-      return next;
+  /**
+   * Atomarer URL-Update für User-Interaktionen: führt einen Updater auf den
+   * URLSearchParams aus UND entfernt im selben Tick den `?ref=`-Param, falls
+   * gerade ein Cross-Reference Highlight aktiv ist. Beide Mutationen landen
+   * in EINEM `setSearchParams`-Call — keine Race-Condition zwischen separaten
+   * useUrlState-Hook-Instanzen.
+   */
+  const runUserUpdate = useCallback(
+    (updater: (p: URLSearchParams) => void) => {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        updater(next);
+        if (refActiveRef.current && next.has('ref')) {
+          next.delete('ref');
+        }
+        return next;
+      }, { replace: true });
+      // Audit-Hook für Konsumenten, die wissen wollen, dass die Interaktion
+      // den Referenz-Modus beendet hat (z.B. für Analytics oder Logging).
+      if (refActiveRef.current) interactionRef.current?.();
+    },
+    [setSearchParams],
+  );
+
+  const setQuery = useCallback((q: string) => {
+    // Programmatic Clear (z.B. via ESC-Stack) soll NICHT den ref entfernen —
+    // dafür nimmt es den ungetrappten Setter aus useUrlState.
+    if (q === '') {
+      setQueryState('');
+      return;
+    }
+    runUserUpdate(p => {
+      p.set('q', q);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [runUserUpdate]);
+
+  const toggleType = useCallback((type: string) => {
+    runUserUpdate(p => {
+      const current = new Set(
+        (p.get('types') ?? '').split(',').map(s => s.trim()).filter(Boolean),
+      );
+      if (current.has(type)) current.delete(type);
+      else current.add(type);
+      if (current.size === 0) p.delete('types');
+      else p.set('types', Array.from(current).join(','));
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runUserUpdate]);
 
   // Bulk-Setter für Gruppen-Pillen: aktiviert oder deaktiviert mehrere Typen auf einen Schlag,
   // ohne die anderen aktiven Typen zu verlieren.
   const setTypes = useCallback((types: string[], active: boolean) => {
-    setActiveTypes(prev => {
-      const next = new Set(prev);
+    runUserUpdate(p => {
+      const current = new Set(
+        (p.get('types') ?? '').split(',').map(s => s.trim()).filter(Boolean),
+      );
       if (active) {
-        for (const t of types) next.add(t);
+        for (const t of types) current.add(t);
       } else {
-        for (const t of types) next.delete(t);
+        for (const t of types) current.delete(t);
       }
-      return next;
+      if (current.size === 0) p.delete('types');
+      else p.set('types', Array.from(current).join(','));
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [runUserUpdate]);
 
   const clearTypes = useCallback(() => {
+    // clearTypes wird vom ESC-Stack und vom "Filter zurücksetzen"-Link genutzt
+    // — beides ist eine programmatische Zurücknahme, nicht die Anlage eines
+    // neuen Filters. ref bleibt unverändert.
     setActiveTypes(EMPTY_TYPES);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -146,7 +227,7 @@ export function useLayoutSearch(objects: LayoutObject[]): LayoutSearchAPI {
     setSelectedUuid(null);
   }, []);
 
-  const filterActive = query !== '' || activeTypes.size > 0;
+  const filterActive = query !== '' || activeTypes.size > 0 || externalHasItems;
 
   return {
     query,

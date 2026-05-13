@@ -1,0 +1,801 @@
+/* ============================================================================
+ * Script Viewer — Color Coding & Layout
+ *
+ * Theme-Architektur: alle Farben sind CSS-Custom-Properties auf .fm-script-root.
+ * Default = Light. Für späteren Theme-Switch:
+ *   - global aktivieren via <html data-theme="dark"> ODER
+ *   - lokal via .fm-script-root.fm-script--dark
+ * Beide Override-Punkte sind unten am Ende dieser Datei vorbereitet.
+ *
+ * Farben orientieren sich an VS Code Light+ für die Step-/Token-Färbung,
+ * UI-Elemente an der bestehenden Frontend-Palette (#646cff, #213547, #f9f9f9).
+ * ========================================================================== */
+
+.fm-script-root {
+  /* ---------- Container — von globalen Theme-Tokens abgeleitet ---------- */
+  --fm-bg:                 var(--color-bg-surface);
+  --fm-border:             var(--color-border);
+  --fm-color-default:      var(--color-text-primary);
+  --fm-color-muted:        var(--color-text-muted);
+  --fm-line-num:           var(--color-text-disabled);
+  --fm-line-hover-bg:      var(--color-hover-bg);
+
+  /* ---------- Step-Typ-Farben (semantisches Highlighting, Light-Werte) ---------- */
+  --fm-color-control:      #af00db;  /* If, Else, End If, Loop, End Loop */
+  --fm-color-set-variable: #001080;
+  --fm-color-set-field:    #098658;
+  --fm-color-perform-script:#0070c1;
+  --fm-color-go-to-layout: #b07700;
+  --fm-color-string:       #a31515;
+  --fm-color-number:       #098658;
+  --fm-color-operator:     #444;
+
+  /* ---------- Ref-Hintergründe (dezent getöntes Highlighting) ---------- */
+  --fm-ref-field-bg:       rgba( 40, 167,  69, 0.10);
+  --fm-ref-script-bg:      rgba( 25, 118, 210, 0.10);
+  --fm-ref-layout-bg:      rgba(240, 165,   0, 0.10);
+  --fm-ref-cf-bg:          rgba(214,  51, 132, 0.10);
+  --fm-ref-plugin-bg:      rgba(111,  66, 193, 0.10);
+  --fm-ref-variable-bg:    rgba(184, 137,   0, 0.10);
+  --fm-ref-variable-fg:    #946800;
+  --fm-ref-valuelist-bg:   rgba( 27, 163, 156, 0.10);
+  --fm-ref-to-bg:          rgba( 92, 124, 250, 0.10);
+
+  /* ---------- Margin-Bar (3 Zustände, kräftig für hellen Hintergrund) ---------- */
+  --fm-margin-comment:     #b0b0b0;
+  --fm-margin-metadata:    #c0392b;
+  --fm-margin-executive:   #2c5fb5;
+
+  /* ---------- UI-Elemente (Header, Buttons, Dropdown) ---------- */
+  --fm-ui-bg:              var(--color-bg-elevated);
+  --fm-ui-border:          var(--color-border-strong);
+  --fm-ui-text:            var(--color-text-secondary);
+  --fm-ui-text-muted:      var(--color-text-muted);
+  --fm-ui-active-bg:       var(--color-accent-soft-bg);
+  --fm-ui-active-text:     var(--color-accent-soft-fg);
+  --fm-ui-accent:          var(--color-accent);
+
+  /* ---------- Popover (Plugin-Doku) ---------- */
+  --fm-popover-bg:         var(--color-bg-elevated);
+  --fm-popover-border:     var(--color-border-strong);
+  --fm-popover-text:       var(--color-text-primary);
+  --fm-popover-shadow:     var(--shadow-md);
+}
+
+/* ============================================================================
+ * Container
+ * ========================================================================== */
+
+.fm-script {
+  background-color: var(--fm-bg);
+  border: 1px solid var(--fm-border);
+  border-radius: 8px;
+  padding: 0.5rem 1rem 0.75rem 1rem;
+  margin: 0;
+  list-style: none;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--fm-color-default);
+  overflow-x: auto;
+  counter-reset: none;
+}
+
+/* ============================================================================
+ * Header über dem Script-Block
+ * ========================================================================== */
+
+.fm-script-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-top: 1rem;
+}
+
+.fm-script-title {
+  margin: 0;
+}
+
+.fm-script-count {
+  color: var(--fm-ui-text-muted);
+  font-weight: normal;
+  font-size: 0.85em;
+}
+
+.fm-script-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.fm-script-mode {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--fm-ui-text-muted);
+}
+
+.fm-script-mode select {
+  background: var(--fm-ui-bg);
+  border: 1px solid var(--fm-ui-border);
+  color: var(--fm-ui-text);
+  padding: 0.25rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.fm-script-mode select:focus {
+  outline: 1px solid var(--fm-ui-accent);
+  border-color: var(--fm-ui-accent);
+}
+
+.fm-script-fold-buttons {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.fm-script-fold-buttons button {
+  background: var(--fm-ui-bg);
+  border: 1px solid var(--fm-ui-border);
+  color: var(--fm-ui-text);
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fm-script-fold-buttons button:hover {
+  border-color: var(--fm-ui-accent);
+  color: var(--fm-ui-active-text);
+}
+
+/* Filter-Toggle (Dimmen/Ausblenden) */
+.fm-filter-toggle {
+  display: inline-flex;
+  border: 1px solid var(--fm-ui-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.fm-filter-toggle button {
+  background: var(--fm-ui-bg);
+  border: none;
+  color: var(--fm-ui-text-muted);
+  padding: 0.25rem 0.7rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fm-filter-toggle button + button {
+  border-left: 1px solid var(--fm-ui-border);
+}
+
+.fm-filter-toggle button.is-active {
+  background: var(--fm-ui-active-bg);
+  color: var(--fm-ui-active-text);
+}
+
+.fm-filter-toggle button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.fm-filter-toggle--disabled {
+  opacity: 0.6;
+}
+
+/* ============================================================================
+ * Zeilen — Grid: [margin-bar | line-num | fold-caret | content]
+ * ========================================================================== */
+
+.fm-line {
+  display: grid;
+  grid-template-columns: 4px minmax(2.5rem, auto) 1.5rem 1fr;
+  align-items: start;
+  gap: 0;
+  padding: 0;
+  position: relative;
+  border-radius: 2px;
+}
+
+.fm-line:hover {
+  background-color: var(--fm-line-hover-bg);
+}
+
+.fm-line--hidden {
+  display: none;
+}
+
+/* Disabled-Lines: durchgestrichen, alle Inhalts-Farben auf grau */
+.fm-line--disabled .fm-line-content,
+.fm-line--disabled .fm-line-content * {
+  color: var(--fm-color-muted) !important;
+}
+.fm-line--disabled .fm-line-content {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.fm-line--disabled .fm-ref {
+  background: transparent !important;
+}
+
+/* Margin-Bar (4px Spalte) */
+.fm-margin-bar {
+  display: block;
+  width: 4px;
+  align-self: stretch;
+  background: transparent;
+}
+.fm-margin--comment   { background-color: var(--fm-margin-comment); }
+.fm-margin--metadata  { background-color: var(--fm-margin-metadata); }
+.fm-margin--executive { background-color: var(--fm-margin-executive); }
+
+/* Pseudo-Zeilennummer */
+.fm-line-num {
+  text-align: right;
+  padding-right: 0.5rem;
+  padding-left: 0.5rem;
+  color: var(--fm-line-num);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Fold-Caret */
+.fm-fold-caret {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  user-select: none;
+}
+
+.fm-fold-btn {
+  background: none;
+  border: none;
+  color: var(--fm-line-num);
+  cursor: pointer;
+  padding: 0 0.1rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  border-radius: 3px;
+}
+
+.fm-fold-btn:hover {
+  color: var(--fm-color-default);
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Code-Inhalt — Indent über CSS-Custom-Property */
+.fm-line-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding-left: calc(var(--fm-indent, 0) * 2ch);
+}
+
+/* Leere Zeilen: schmaler Spacer */
+.fm-line--empty {
+  min-height: 0.4em;
+}
+.fm-line--empty .fm-line-content {
+  visibility: hidden;
+}
+
+/* Multiline-Calc Sub-Zeilen */
+.fm-line-sub {
+  display: block;
+}
+.fm-line-sub--cont {
+  padding-left: 2ch;
+}
+
+.fm-fold-ellipsis {
+  color: var(--fm-color-muted);
+  font-style: italic;
+}
+
+/* ============================================================================
+ * Kommentare — grau, mehrzeilig, mit '#'-Präfix pro Sub-Zeile
+ * ========================================================================== */
+
+.fm-comment,
+.fm-line--comment .fm-line-content {
+  color: var(--fm-color-muted);
+  font-style: italic;
+}
+
+.fm-comment-line {
+  display: block;
+}
+
+.fm-comment-prefix {
+  color: var(--fm-color-muted);
+  opacity: 0.55;
+  user-select: none;
+}
+
+/* Im "Nur Kommentare"-Modus stehen Kommentare im Fokus — voller Kontrast
+ * statt gedämpftem Grau, damit Light-/Dark-Mode lesbar bleiben. Die nicht
+ * gefilterten Comment-Zeilen werden über die generischen :not(...)-Selektoren
+ * weiter unten nicht erfasst, daher hier eigene Regel. */
+.fm-mode--comments-only .fm-line--comment .fm-line-content,
+.fm-mode--comments-only .fm-line--comment .fm-comment {
+  color: var(--fm-color-default);
+}
+
+/* ============================================================================
+ * Step-Typ-Färbung (über data-step-name am <li>)
+ * ========================================================================== */
+
+.fm-line[data-step-name="If"] .fm-line-content,
+.fm-line[data-step-name="Else"] .fm-line-content,
+.fm-line[data-step-name="Else If"] .fm-line-content,
+.fm-line[data-step-name="End If"] .fm-line-content,
+.fm-line[data-step-name="Loop"] .fm-line-content,
+.fm-line[data-step-name="End Loop"] .fm-line-content,
+.fm-line[data-step-name="Exit Loop If"] .fm-line-content,
+.fm-line[data-step-name="Open Transaction"] .fm-line-content,
+.fm-line[data-step-name="Commit Transaction"] .fm-line-content,
+.fm-line[data-step-name="Revert Transaction"] .fm-line-content {
+  color: var(--fm-color-control);
+}
+
+.fm-line[data-step-name="Set Variable"] .fm-line-content {
+  color: var(--fm-color-set-variable);
+}
+
+.fm-line[data-step-name="Set Field"] .fm-line-content,
+.fm-line[data-step-name="Set Field By Name"] .fm-line-content {
+  color: var(--fm-color-set-field);
+}
+
+.fm-line[data-step-name="Perform Script"] .fm-line-content,
+.fm-line[data-step-name="Perform Script on Server"] .fm-line-content {
+  color: var(--fm-color-perform-script);
+}
+
+.fm-line[data-step-name="Go to Layout"] .fm-line-content {
+  color: var(--fm-color-go-to-layout);
+}
+
+/* Token-Farben innerhalb der Zeile */
+.fm-token--string {
+  color: var(--fm-color-string);
+}
+.fm-token--number {
+  color: var(--fm-color-number);
+}
+.fm-token--operator {
+  color: var(--fm-color-operator);
+  font-weight: 500;
+}
+
+/* ============================================================================
+ * Refs — dezenter Hintergrund-Tint, Border nur auf Hover
+ * ========================================================================== */
+
+.fm-ref {
+  text-decoration: none;
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: pointer;
+}
+
+.fm-ref:hover {
+  border-bottom: 1px dotted currentColor;
+}
+
+a.fm-ref {
+  color: inherit;
+}
+
+.fm-ref--field           { background: var(--fm-ref-field-bg); }
+.fm-ref--script          { background: var(--fm-ref-script-bg); }
+.fm-ref--layout          { background: var(--fm-ref-layout-bg); }
+.fm-ref--customFunction  { background: var(--fm-ref-cf-bg); }
+.fm-ref--pluginFunction  { background: var(--fm-ref-plugin-bg); position: relative; }
+.fm-ref--variable        { background: var(--fm-ref-variable-bg); color: var(--fm-ref-variable-fg); }
+.fm-ref--valueList       { background: var(--fm-ref-valuelist-bg); }
+.fm-ref--tableOccurrence { background: var(--fm-ref-to-bg); }
+
+/* Klickbare Refs (Cross-Navigation zu Pseudo-Objekt-Detail-Seiten) —
+ * PRD prd_pseudo_object_types_filter.md §5. Pointer-Cursor + Hover-Underline
+ * konsistent mit anderen Ref-Links (Field, Script, …). */
+.fm-ref-link {
+  cursor: pointer;
+}
+.fm-ref-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Cross-File-Marker */
+.fm-ref--cross-file::after {
+  content: '↗';
+  font-size: 0.7em;
+  margin-left: 1px;
+  opacity: 0.55;
+}
+
+/* Cross-Reference Highlight (PRD prd_cross_references_hilite.md §7.2).
+   Analog zu LayoutCanvas-Highlight: kräftige rote Umrandung. Zusätzlich
+   gelber Hintergrund, damit das Token im Textfluss auch ohne Border-Sichtkontakt
+   sofort ins Auge sticht. Position relative + ::before-Pseudo wäre aufwendiger
+   — wir nutzen Box-Shadow als "Outline mit Innen-Padding", weil outline allein
+   bei Inline-Elementen mit Zeilenumbruch unschön bricht. */
+.fm-ref--highlighted {
+  background-color: #fff3a8 !important;
+  color: #a02020 !important;
+  font-weight: 700;
+  box-shadow:
+    0 0 0 2px #d63333,
+    0 0 0 4px rgba(214, 51, 51, 0.25);
+  border-radius: 3px;
+  padding: 0 3px;
+  margin: 0 1px;
+}
+
+/* Dark-Mode-Variante: Hintergrund dunkler/wärmer, damit weißer Text lesbar bleibt. */
+[data-theme="dark"] .fm-ref--highlighted {
+  background-color: #6b4a00 !important;
+  color: #ffe680 !important;
+  box-shadow:
+    0 0 0 2px #ff5555,
+    0 0 0 4px rgba(255, 85, 85, 0.3);
+}
+
+/* Such-Highlight aus der ScriptSearchFilter-Toolbar — orange Umrandung,
+ * konsistent mit Layout-Canvas und Beziehungsgraph-Suche (#fb923c / #ffa552).
+ * Bewusst KEIN Hintergrund, damit der existierende Ref-Hintergrund (Field-grün,
+ * Script-blau usw.) sichtbar bleibt — nur ein Border-Ring kommt hinzu. */
+.fm-ref--search-match {
+  box-shadow:
+    0 0 0 2px #fb923c,
+    0 0 0 3px rgba(251, 146, 60, 0.20);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+[data-theme="dark"] .fm-ref--search-match {
+  box-shadow:
+    0 0 0 2px #ffa552,
+    0 0 0 3px rgba(255, 165, 82, 0.25);
+}
+
+/* Wenn Cross-Reference-Highlight UND Such-Match gleichzeitig greifen, hat das
+ * Cross-Reference-Highlight Vorrang (Outer Ring rot bleibt sichtbar). */
+.fm-ref--highlighted.fm-ref--search-match {
+  box-shadow:
+    0 0 0 2px #d63333,
+    0 0 0 4px rgba(214, 51, 51, 0.25),
+    0 0 0 6px #fb923c;
+}
+
+[data-theme="dark"] .fm-ref--highlighted.fm-ref--search-match {
+  box-shadow:
+    0 0 0 2px #ff5555,
+    0 0 0 4px rgba(255, 85, 85, 0.3),
+    0 0 0 6px #ffa552;
+}
+
+/* Cross-Reference-Highlight für ganze Step-Zeilen (PRD prd_pseudo_object_types
+ * _filter.md §6.4). Aktiviert, wenn back_references die Step_UUID dieser Zeile
+ * als Match liefert (z.B. Origin=ScriptStepType "Set Variable" → alle 706
+ * Set-Variable-Steps im Destination-Script werden markiert). */
+.fm-line--ref-highlighted {
+  background-color: rgba(214, 51, 51, 0.08);
+  box-shadow: inset 3px 0 0 0 #d63333;
+}
+
+[data-theme="dark"] .fm-line--ref-highlighted {
+  background-color: rgba(255, 85, 85, 0.12);
+  box-shadow: inset 3px 0 0 0 #ff5555;
+}
+
+/* ============================================================================
+ * View-Modes — Filter-Stile (dim/hide)
+ * ========================================================================== */
+
+.fm-filter--hide.fm-mode--compact .fm-line[data-kind="comment"],
+.fm-filter--hide.fm-mode--compact .fm-line[data-kind="empty"],
+.fm-filter--hide.fm-mode--compact .fm-line--disabled,
+.fm-filter--hide.fm-mode--comments-only .fm-line:not([data-kind="comment"]),
+.fm-filter--hide.fm-mode--control-only .fm-line:not([data-role="control-structure"]):not([data-role="script-return"]),
+.fm-filter--hide.fm-mode--subscript-only .fm-line:not([data-role="subscript-call"]),
+.fm-filter--hide.fm-mode--assignments-only .fm-line:not([data-role="variable-assignment"]):not([data-role="field-assignment"]),
+.fm-filter--hide.fm-mode--executive-only .fm-line[data-kind="comment"],
+.fm-filter--hide.fm-mode--executive-only .fm-line[data-kind="empty"] {
+  display: none;
+}
+
+.fm-filter--dim.fm-mode--compact .fm-line[data-kind="comment"],
+.fm-filter--dim.fm-mode--compact .fm-line[data-kind="empty"],
+.fm-filter--dim.fm-mode--comments-only .fm-line:not([data-kind="comment"]),
+.fm-filter--dim.fm-mode--control-only .fm-line:not([data-role="control-structure"]):not([data-role="script-return"]),
+.fm-filter--dim.fm-mode--subscript-only .fm-line:not([data-role="subscript-call"]),
+.fm-filter--dim.fm-mode--assignments-only .fm-line:not([data-role="variable-assignment"]):not([data-role="field-assignment"]),
+.fm-filter--dim.fm-mode--executive-only .fm-line[data-kind="comment"],
+.fm-filter--dim.fm-mode--executive-only .fm-line[data-kind="empty"] {
+  opacity: 0.45;
+}
+
+.fm-filter--dim.fm-mode--compact .fm-line[data-kind="comment"] *,
+.fm-filter--dim.fm-mode--compact .fm-line[data-kind="empty"] *,
+.fm-filter--dim.fm-mode--comments-only .fm-line:not([data-kind="comment"]) *,
+.fm-filter--dim.fm-mode--control-only .fm-line:not([data-role="control-structure"]):not([data-role="script-return"]) *,
+.fm-filter--dim.fm-mode--subscript-only .fm-line:not([data-role="subscript-call"]) *,
+.fm-filter--dim.fm-mode--assignments-only .fm-line:not([data-role="variable-assignment"]):not([data-role="field-assignment"]) *,
+.fm-filter--dim.fm-mode--executive-only .fm-line[data-kind="comment"] *,
+.fm-filter--dim.fm-mode--executive-only .fm-line[data-kind="empty"] * {
+  color: var(--fm-color-muted) !important;
+  background: transparent !important;
+}
+
+/* ============================================================================
+ * Plugin-Doku-Popover
+ * ========================================================================== */
+
+/* Plugin-Doku-Popover ist bewusst breiter als das Step-Name-/Function-Popover
+ * (.fm-stepname-popover, ~540px max), weil MBS-Doku oft Tabellen, lange
+ * Signaturen und mehrzeilige HTML-Beispiele enthält — bei 540px brechen die
+ * Tabellen-Spalten unschön um. 1,5×-Faktor relativ zum Standard-Popover. */
+.plugin-doc-popover {
+  position: absolute;
+  top: 1.4em;
+  left: 0;
+  z-index: 100;
+  display: block;
+  min-width: 480px;
+  max-width: 810px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--fm-popover-bg);
+  border: 1px solid var(--fm-popover-border);
+  border-radius: 6px;
+  padding: 0.7rem 0.9rem;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--fm-popover-text);
+  box-shadow: var(--fm-popover-shadow);
+  white-space: normal;
+  pointer-events: auto;
+  cursor: default;
+  text-decoration: none;
+}
+
+.plugin-doc-loading,
+.plugin-doc-error {
+  display: block;
+  color: var(--fm-color-muted);
+  font-style: italic;
+}
+.plugin-doc-error {
+  color: var(--color-error-fg);
+}
+
+.plugin-doc-content {
+  display: block;
+}
+
+.plugin-doc-header {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 0.4rem;
+}
+
+.plugin-doc-component,
+.plugin-doc-version {
+  color: var(--fm-color-muted);
+  font-weight: normal;
+}
+
+.plugin-doc-signature {
+  display: block;
+  background: var(--fm-bg);
+  border: 1px solid var(--fm-border);
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  margin: 0.4rem 0;
+  font-size: 0.78rem;
+  color: var(--fm-color-set-variable);
+  white-space: pre-wrap;
+}
+
+.plugin-doc-html {
+  display: block;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--fm-popover-text);
+}
+
+.plugin-doc-html h2 {
+  font-size: 1rem;
+  margin: 0.3rem 0;
+}
+
+.plugin-doc-html h3 {
+  font-size: 0.85rem;
+  margin: 0.5rem 0 0.2rem;
+  color: var(--fm-ui-text-muted);
+}
+
+.plugin-doc-html p {
+  margin: 0.3rem 0;
+}
+
+.plugin-doc-html table {
+  border-collapse: collapse;
+  margin: 0.3rem 0;
+  font-size: 0.75rem;
+}
+
+.plugin-doc-html td,
+.plugin-doc-html th {
+  border: 1px solid var(--fm-border);
+  padding: 0.2rem 0.4rem;
+  text-align: left;
+}
+
+.plugin-doc-link {
+  display: inline-block;
+  margin-top: 0.4rem;
+  color: var(--fm-ui-accent);
+  font-size: 0.78rem;
+  text-decoration: underline;
+}
+
+/* Container-Position für PluginRefSpan */
+span.fm-ref--pluginFunction {
+  position: relative;
+}
+
+/* ============================================================================
+ * Dark Theme — Subsystem-spezifische Step-/Token-/Ref-Farben.
+ * Container-Tokens (--fm-bg, --fm-border, --fm-color-default, --fm-ui-*, ...)
+ * werden bereits über die globalen Theme-Tokens (theme.css) automatisch
+ * umgeschaltet — hier nur, was der ScriptViewer semantisch eigen färbt.
+ * ========================================================================== */
+
+[data-theme="dark"] .fm-script-root {
+  /* Step-/Token-Farben (VS Code Dark+ inspiriert) */
+  --fm-color-control:      #c586c0;
+  --fm-color-set-variable: #9cdcfe;
+  --fm-color-set-field:    #b5cea8;
+  --fm-color-perform-script:#569cd6;
+  --fm-color-go-to-layout: #d7ba7d;
+  --fm-color-string:       #ce9178;
+  --fm-color-number:       #b5cea8;
+  --fm-color-operator:     #d4d4d4;
+
+  /* Ref-Hintergründe — heller getönt für dunklen Hintergrund */
+  --fm-ref-field-bg:       rgba(180, 255, 100, 0.10);
+  --fm-ref-script-bg:      rgba(100, 180, 255, 0.13);
+  --fm-ref-layout-bg:      rgba(255, 200,  80, 0.10);
+  --fm-ref-cf-bg:          rgba(255, 120, 180, 0.10);
+  --fm-ref-plugin-bg:      rgba(200, 140, 255, 0.13);
+  --fm-ref-variable-bg:    rgba(255, 220, 120, 0.08);
+  --fm-ref-variable-fg:    #ffdc78;
+  --fm-ref-valuelist-bg:   rgba(120, 220, 200, 0.10);
+  --fm-ref-to-bg:          rgba(180, 220, 255, 0.08);
+
+  /* Margin-Bar — gedämpfter im Dark-Mode */
+  --fm-margin-comment:     #4a4a4a;
+  --fm-margin-metadata:    #900101;
+  --fm-margin-executive:   #1a2dc4;
+}
+
+/* Dark-Mode-spezifische Anpassung: Fold-Btn-Hover heller statt dunkler */
+[data-theme="dark"] .fm-fold-btn:hover {
+  background-color: rgba(255, 255, 255, 0.07);
+}
+
+/* ============================================================================
+ * Step-Name-Popover (Reference-DB-Anreicherung pro Step)
+ * Identisch zu fm-function-popover aus CustomFunctionViewer.css, aber mit
+ * eigenen Klassen damit ScriptViewer.css und CustomFunctionViewer.css
+ * unabhängig geladen werden können.
+ * ========================================================================== */
+
+.fm-stepname {
+  position: relative;
+  cursor: help;
+  /* Step-Name ist Teil des Line-Contents — keine eigene Farbe, damit die
+   * Step-Typ-Färbung über .fm-line[data-step-name=...] greift. */
+}
+
+.fm-stepname:hover {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+/* Klickbarer Step-Namen-Link (Cross-Navigation → ScriptStepType-Detail).
+ * Farbe und Hintergrund bleiben vom Eltern-fm-stepname; nur cursor + hover
+ * unterscheiden sich vom Popover-Trigger. */
+.fm-stepname-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.fm-stepname-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.fm-stepname-popover {
+  position: absolute;
+  top: 1.4em;
+  left: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 320px;
+  max-width: 540px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 0.7rem 0.9rem;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  white-space: normal;
+  pointer-events: auto;
+  cursor: default;
+  text-decoration: none;
+}
+
+.fm-stepname-popover-header {
+  font-size: 0.95rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.fm-stepname-popover-canonical {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+.fm-stepname-popover-purpose {
+  color: var(--color-text-primary);
+}
+
+.fm-stepname-popover-link {
+  align-self: flex-start;
+  color: var(--color-accent);
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+
+.fm-stepname-popover-link:hover {
+  text-decoration: underline;
+}
+
+/* ============================================================================
+ * Function-Tokens innerhalb von Script-Lines (PRD §5.2)
+ * Wenn Calc-Refs vom Type `function` als ScriptRef geliefert werden, bekommen
+ * sie eine eigene Background-Färbung — wird die volle Funktions-Popover dann
+ * direkt im RefSpan über die Function-Variante getriggert.
+ * ========================================================================== */
+
+.fm-ref--function {
+  background: rgba(0, 122, 204, 0.10);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.fm-ref--function:hover {
+  border-bottom: 1px dotted currentColor;
+}

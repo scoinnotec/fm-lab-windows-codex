@@ -4,6 +4,7 @@ import cytoscape from 'cytoscape';
 // @ts-expect-error cytoscape-dagre has no type declarations
 import dagre from 'cytoscape-dagre';
 import type { FMObject, GroupedReferences } from '../types';
+import { buildNavigablePath } from '../lib/navigation';
 
 // Register dagre layout
 cytoscape.use(dagre);
@@ -172,6 +173,9 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({ object, refere
             objectType: ref.Object_Type,
             fileName: ref.File_Name,
             isCenter: false,
+            // Container-Resolution für Sub-Knoten (PRD prd_cross_references_hilite):
+            // LayoutObjects öffnen ihren Container (Layout) mit Sub-Knoten als ref.
+            containerUuid: ref.Container_UUID ?? null,
           },
         });
         addedNodes.add(ref.uuid);
@@ -201,6 +205,9 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({ object, refere
             objectType: ref.Object_Type,
             fileName: ref.File_Name,
             isCenter: false,
+            // Container-Resolution für Sub-Knoten (PRD prd_cross_references_hilite):
+            // LayoutObjects öffnen ihren Container (Layout) mit Sub-Knoten als ref.
+            containerUuid: ref.Container_UUID ?? null,
           },
         });
         addedNodes.add(ref.uuid);
@@ -240,10 +247,16 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({ object, refere
     cy.on('tap', 'node[!isCenter]', (evt) => {
       const uuid = evt.target.data('uuid');
       if (!uuid) return;
+      const containerUuid = (evt.target.data('containerUuid') as string | null) ?? null;
       const originalEvent = evt.originalEvent as MouseEvent;
       const useDetailsTab = originalEvent.metaKey || originalEvent.ctrlKey;
+      // PRD §7.4 + Container-Resolution: Sub-Knoten (LayoutObject) öffnen ihren
+      // Container mit Sub-Knoten als ref-Highlight. Eigenständige Objekte
+      // navigieren direkt mit Center-Objekt als Origin.
       navigateRef.current(
-        useDetailsTab ? `/object/${uuid}` : `/object/${uuid}?tab=graph`
+        buildNavigablePath(uuid, object.Object_UUID, containerUuid, {
+          tab: useDetailsTab ? null : 'graph',
+        }),
       );
     });
 

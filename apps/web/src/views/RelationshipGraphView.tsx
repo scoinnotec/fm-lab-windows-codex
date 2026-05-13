@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams, useLocation } from 'react-rout
 import { api } from '../api/client';
 import { useRelationshipGraph } from '../hooks/useRelationshipGraph';
 import { RelationshipGraph, type RelationshipGraphHandle } from '../components/RelationshipGraph';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { useEscapeStack } from '../hooks/useEscapeStack';
 import './RelationshipGraphView.css';
 
@@ -98,6 +99,7 @@ export function RelationshipGraphView() {
             ))}
           </select>
         </div>
+        <ThemeToggle />
       </header>
 
       <div className="relationship-graph-body">

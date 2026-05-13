@@ -2,7 +2,8 @@ const db = require('../config/database');
 const { createError } = require('../middleware/error-handler');
 const { buildWhereClause, buildGroupByClause } = require('../utils/query-builder');
 const environment = require('../config/environment');
-const { OBJECT_TYPE_MAP, DETAIL_TEMPLATE_MAP, FOLDER_PSEUDO_TYPES } = require('../config/constants');
+const { OBJECT_TYPE_MAP, DETAIL_TEMPLATE_MAP, FOLDER_PSEUDO_TYPES, PSEUDO_TOKEN_TYPES } = require('../config/constants');
+const aggregations = require('./aggregations');
 
 /**
  * Resolve a possibly-pseudo Object_Type into a SQL filter fragment + params.
@@ -73,18 +74,71 @@ async function getByUUID(uuid) {
 
 /**
  * List objects by type with optional filters
- * @param {Object} filters - Filter options {type, file, limit}
+ * @param {Object} filters - Filter options
+ * @param {string} filters.type
+ * @param {string} [filters.file]
+ * @param {number} [filters.limit]
+ * @param {boolean} [filters.withUsage]   - Pseudo-Token-Erweiterung: usage_count Spalte
+ * @param {boolean} [filters.withCategory] - Pseudo-Token-Erweiterung: category/category_id Spalten
+ * @param {string|string[]} [filters.category] - Category-Filter (kommasepariert oder Array)
+ * @param {string} [filters.sort]         - 'usage' | 'name' | 'category'
  * @returns {Promise<Object>} List of objects with metadata
  */
 async function listObjects(filters) {
   try {
-    const { type, file, limit = environment.api.defaultLimit } = filters;
+    const {
+      type,
+      file,
+      limit = environment.api.defaultLimit,
+      withUsage = false,
+      withCategory = false,
+      category,
+      sort,
+    } = filters;
 
     // Normalize type to PascalCase for database
     const dbType = OBJECT_TYPE_MAP[type] || type;
+
+    // Categories als Array normalisieren (akzeptiert "A,B,C" oder Array).
+    const categories = normalizeCategories(category);
+
+    // Wenn der Typ eine Aggregations-Erweiterung verlangt, gehen wir über den
+    // Aggregations-Builder. Sonst klassischer Pfad mit Reference_Count.
+    const wantsAggregation =
+      withUsage || withCategory || categories.length > 0 || (sort && PSEUDO_TOKEN_TYPES.includes(dbType));
+
+    const supportsAggregation = aggregations.USAGE_TYPES.includes(dbType);
+
+    if (wantsAggregation && supportsAggregation) {
+      // Validierung: PluginComponent kennt keine Category-Schicht über sich.
+      if (dbType === 'PluginComponent') {
+        if (withCategory || categories.length > 0) {
+          throw createError(
+            'VALIDATION_ERROR',
+            "PluginComponent has no parent category — '?withCategory' / '?category' are not supported.",
+            { type, withCategory, category }
+          );
+        }
+      }
+      const { sql, params } = aggregations.buildListQuery(dbType, {
+        file,
+        withUsage,
+        withCategory,
+        categories,
+        sort,
+        limit,
+        refAttached: db.isReferenceAttached(),
+      });
+      const result = await db.executeQuery(sql, params);
+      return {
+        data: convertBigInts(result.rows),
+        meta: result.meta,
+      };
+    }
+
+    // Standardpfad — bestehend, mit Reference_Count.
     const typeFilter = buildTypeFilter(dbType);
 
-    // Build query with reference count
     let sql = `
       SELECT
         oc.*,
@@ -122,6 +176,47 @@ async function listObjects(filters) {
   } catch (error) {
     if (error.code) throw error;
     throw createError('DATABASE_ERROR', error.message, filters);
+  }
+}
+
+/**
+ * Normalisiert den Category-Parameter zu einem String-Array.
+ * Akzeptiert: undefined/null → []; String "A,B,C" → ['A','B','C']; Array → unverändert.
+ */
+function normalizeCategories(category) {
+  if (!category) return [];
+  if (Array.isArray(category)) return category.filter(Boolean);
+  if (typeof category === 'string') {
+    return category.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+/**
+ * GET /api/list/categories — Filter-Pillen-Datenbasis.
+ * PRD prd_pseudo_object_types_filter.md §7.2: liefert pro Category eines
+ * Pseudo-Token-Typs { category, token_count, total_usage }, sortiert nach
+ * total_usage desc.
+ */
+async function listCategorySummary({ type }) {
+  try {
+    const dbType = OBJECT_TYPE_MAP[type] || type;
+    if (!PSEUDO_TOKEN_TYPES.includes(dbType)) {
+      throw createError(
+        'VALIDATION_ERROR',
+        `Type '${dbType}' has no category schema (only PSEUDO_TOKEN_TYPES are supported).`,
+        { type, supported: PSEUDO_TOKEN_TYPES }
+      );
+    }
+    const sql = aggregations.buildCategorySummaryQuery(dbType, db.isReferenceAttached());
+    const result = await db.executeQuery(sql, []);
+    return {
+      data: convertBigInts(result.rows),
+      meta: result.meta,
+    };
+  } catch (error) {
+    if (error.code) throw error;
+    throw createError('DATABASE_ERROR', error.message, { type });
   }
 }
 
@@ -295,6 +390,117 @@ async function countSearchResults(searchOptions) {
 }
 
 /**
+ * Pseudo-Type Reference-Resolver.
+ *
+ * ScriptStepType + PluginComponent haben keine vollständigen ObjectLinks-
+ * Spiegelungen (PRD prd_pseudo_object_types_filter.md §6.4). Damit der
+ * Referenzen-Tab im Frontend trotzdem die aufrufenden Scripts/Container
+ * anzeigen kann, aggregieren wir die "parent"-Liste live aus den Basis-
+ * Tabellen:
+ *   - ScriptStepType  → StepsForScripts (alle Scripts mit Step_Name = Object_Name)
+ *   - PluginComponent → ObjectLinks via groups_into → calls_pluginfunction
+ *                       (Aufrufer-Container)
+ *
+ * Liefert ein {data, meta}-Objekt (kompatibel zum Standard-References-Pfad)
+ * oder NULL, wenn das Objekt kein Pseudo-Typ ist.
+ */
+async function getPseudoTypeReferences(uuid, direction, link_type, limit) {
+  // Object-Type lookup
+  const typeLookup = await db.executeQuery(
+    'SELECT Object_Type, Object_Name FROM ObjectCatalog WHERE Object_UUID = ?',
+    [uuid]
+  );
+  if (typeLookup.rows.length === 0) return null;
+  const objType = typeLookup.rows[0].Object_Type;
+
+  // 'child'-direction macht für Aggregate keinen Sinn — sie haben keine
+  // Downstream-Abhängigkeiten. 'parent' und 'all' liefern die Aufrufer-Liste.
+  if (direction === 'child' || direction === 'recursive') return null;
+
+  // Pseudo-Typen haben nur "operational"-Equivalente; auf structural-Anfragen
+  // liefern wir explizit ein leeres Result, damit der Frontend-Hook nicht
+  // versehentlich Aufrufer doppelt sieht.
+  if (link_type === 'structural') {
+    return { data: [], meta: { source: 'pseudo_type_resolver', object_type: objType } };
+  }
+
+  if (objType === 'ScriptStepType') {
+    // Aufrufer = Scripts mit Step_Name = Object_Name
+    const sql = `
+      SELECT
+        'parent' as direction,
+        s.Script_UUID as uuid,
+        'Script' as Object_Type,
+        s.Script_Name as Object_Name,
+        s.File_Name as File_Name,
+        'uses_step_type' as Link_Role,
+        FALSE as Is_Cross_File,
+        NULL as Container_UUID,
+        NULL as Container_Type,
+        COUNT(*) as Call_Count
+      FROM StepsForScripts s
+      JOIN ObjectCatalog oc ON oc.Object_UUID = ?
+      WHERE s.Step_Name = oc.Object_Name
+      GROUP BY s.Script_UUID, s.Script_Name, s.File_Name
+      ORDER BY Call_Count DESC, s.Script_Name ASC
+      ${limit > 0 ? 'LIMIT ?' : ''}
+    `;
+    const params = limit > 0 ? [uuid, limit] : [uuid];
+    const result = await db.executeQuery(sql, params);
+    return {
+      data: convertBigInts(result.rows),
+      meta: { ...result.meta, source: 'pseudo_type_resolver', object_type: objType },
+    };
+  }
+
+  if (objType === 'PluginComponent') {
+    // Zwei-Stufen-Aggregation: groups_into → calls_pluginfunction
+    // Aufrufer-Containers (Script/CustomFunction) der Funktionen dieser Component.
+    const sql = `
+      WITH funcs AS (
+        SELECT pf.Object_UUID
+        FROM ObjectCatalog pc
+        JOIN ObjectLinks gi ON gi.Target_UUID = pc.Object_UUID
+                           AND gi.Link_Role = 'groups_into'
+        JOIN ObjectCatalog pf ON pf.Object_UUID = gi.Source_UUID
+                             AND pf.Object_Type = 'PluginFunction'
+        WHERE pc.Object_UUID = ?
+      )
+      SELECT
+        'parent' as direction,
+        oc.Object_UUID as uuid,
+        oc.Object_Type as Object_Type,
+        oc.Object_Name as Object_Name,
+        oc.File_Name as File_Name,
+        'calls_component' as Link_Role,
+        FALSE as Is_Cross_File,
+        pl.Target_UUID as Container_UUID,
+        pc_container.Object_Type as Container_Type,
+        COUNT(*) as Call_Count
+      FROM funcs f
+      JOIN ObjectLinks call ON call.Target_UUID = f.Object_UUID
+                           AND call.Link_Role = 'calls_pluginfunction'
+      JOIN ObjectCatalog oc ON oc.Object_UUID = call.Source_UUID
+      LEFT JOIN ObjectLinks pl ON pl.Source_UUID = oc.Object_UUID
+                              AND pl.Link_Role IN ('parent_layout', 'parent_script')
+      LEFT JOIN ObjectCatalog pc_container ON pc_container.Object_UUID = pl.Target_UUID
+      GROUP BY oc.Object_UUID, oc.Object_Type, oc.Object_Name, oc.File_Name,
+               pl.Target_UUID, pc_container.Object_Type
+      ORDER BY Call_Count DESC, oc.Object_Name ASC
+      ${limit > 0 ? 'LIMIT ?' : ''}
+    `;
+    const params = limit > 0 ? [uuid, limit] : [uuid];
+    const result = await db.executeQuery(sql, params);
+    return {
+      data: convertBigInts(result.rows),
+      meta: { ...result.meta, source: 'pseudo_type_resolver', object_type: objType },
+    };
+  }
+
+  return null;
+}
+
+/**
  * Get object references (dependencies)
  * @param {Object} refOptions - Reference options {uuid, direction, link_type, limit}
  * @returns {Promise<Object>} References with metadata
@@ -308,21 +514,42 @@ async function getReferences(refOptions) {
       limit = environment.api.defaultLimit
     } = refOptions;
 
+    // Pseudo-Type-Sonderfall: ScriptStepType + PluginComponent haben keine
+    // (vollständigen) ObjectLinks-Spiegelungen (PRD §6.4). Die "Verwendet in"-
+    // Liste muss daher live aus den Basis-Tabellen aggregiert werden.
+    const pseudoRefs = await getPseudoTypeReferences(uuid, direction, link_type, limit);
+    if (pseudoRefs !== null) return pseudoRefs;
+
     let sql;
     let params;
+
+    // Container-Resolution für Sub-Knoten (PRD prd_cross_references_hilite.md):
+    // LayoutObject und ScriptStep haben keinen sinnvollen Standalone-Detail-View —
+    // ihr Wert liegt im Container-Kontext. Die zusätzlichen LEFT JOINs liefern
+    // den Container-UUID/Type über `parent_layout`/`parent_script`-Links mit.
+    // Für andere Object-Types bleibt Container_UUID = NULL, und das Frontend
+    // navigiert wie gewohnt direkt auf das Objekt.
+    const CONTAINER_JOIN = `
+      LEFT JOIN ObjectLinks pl ON pl.Source_UUID = oc.Object_UUID
+        AND pl.Link_Role IN ('parent_layout', 'parent_script')
+      LEFT JOIN ObjectCatalog pc ON pl.Target_UUID = pc.Object_UUID
+    `;
 
     if (direction === 'child') {
       // Downstream dependencies (what this object references)
       sql = `
         SELECT
           ol.Target_UUID,
-          oc_target.Object_Type as Target_Type,
-          oc_target.Object_Name as Target_Name,
-          oc_target.File_Name as Target_File,
+          oc.Object_Type as Target_Type,
+          oc.Object_Name as Target_Name,
+          oc.File_Name as Target_File,
           ol.Link_Role,
-          ol.Is_Cross_File
+          ol.Is_Cross_File,
+          pl.Target_UUID as Container_UUID,
+          pc.Object_Type as Container_Type
         FROM ObjectLinks ol
-        JOIN ObjectCatalog oc_target ON ol.Target_UUID = oc_target.Object_UUID
+        JOIN ObjectCatalog oc ON ol.Target_UUID = oc.Object_UUID
+        ${CONTAINER_JOIN}
         WHERE ol.Source_UUID = ?
       `;
       params = [uuid];
@@ -336,13 +563,16 @@ async function getReferences(refOptions) {
       sql = `
         SELECT
           ol.Source_UUID,
-          oc_source.Object_Type as Source_Type,
-          oc_source.Object_Name as Source_Name,
-          oc_source.File_Name as Source_File,
+          oc.Object_Type as Source_Type,
+          oc.Object_Name as Source_Name,
+          oc.File_Name as Source_File,
           ol.Link_Role,
-          ol.Is_Cross_File
+          ol.Is_Cross_File,
+          pl.Target_UUID as Container_UUID,
+          pc.Object_Type as Container_Type
         FROM ObjectLinks ol
-        JOIN ObjectCatalog oc_source ON ol.Source_UUID = oc_source.Object_UUID
+        JOIN ObjectCatalog oc ON ol.Source_UUID = oc.Object_UUID
+        ${CONTAINER_JOIN}
         WHERE ol.Target_UUID = ?
       `;
       params = [uuid];
@@ -379,38 +609,37 @@ async function getReferences(refOptions) {
       `;
       params = [uuid];
     } else {
-      // All (both parent and child)
-      sql = `
-        SELECT 'child' as direction, ol.Target_UUID as uuid, oc.Object_Type, oc.Object_Name, oc.File_Name, ol.Link_Role, ol.Is_Cross_File
+      // All (both parent and child) — beide Hälften mit Container-Resolution.
+      const baseChild = `
+        SELECT 'child' as direction,
+          ol.Target_UUID as uuid,
+          oc.Object_Type, oc.Object_Name, oc.File_Name,
+          ol.Link_Role, ol.Is_Cross_File,
+          pl.Target_UUID as Container_UUID,
+          pc.Object_Type as Container_Type
         FROM ObjectLinks ol
         JOIN ObjectCatalog oc ON ol.Target_UUID = oc.Object_UUID
+        ${CONTAINER_JOIN}
         WHERE ol.Source_UUID = ?
-
-        UNION ALL
-
-        SELECT 'parent' as direction, ol.Source_UUID as uuid, oc.Object_Type, oc.Object_Name, oc.File_Name, ol.Link_Role, ol.Is_Cross_File
+      `;
+      const baseParent = `
+        SELECT 'parent' as direction,
+          ol.Source_UUID as uuid,
+          oc.Object_Type, oc.Object_Name, oc.File_Name,
+          ol.Link_Role, ol.Is_Cross_File,
+          pl.Target_UUID as Container_UUID,
+          pc.Object_Type as Container_Type
         FROM ObjectLinks ol
         JOIN ObjectCatalog oc ON ol.Source_UUID = oc.Object_UUID
+        ${CONTAINER_JOIN}
         WHERE ol.Target_UUID = ?
       `;
-      params = [uuid, uuid];
-
       if (link_type !== 'all') {
-        // Need to add link_type filter for both queries
-        sql = `
-          SELECT 'child' as direction, ol.Target_UUID as uuid, oc.Object_Type, oc.Object_Name, oc.File_Name, ol.Link_Role, ol.Is_Cross_File
-          FROM ObjectLinks ol
-          JOIN ObjectCatalog oc ON ol.Target_UUID = oc.Object_UUID
-          WHERE ol.Source_UUID = ? AND ol.Link_Type = ?
-
-          UNION ALL
-
-          SELECT 'parent' as direction, ol.Source_UUID as uuid, oc.Object_Type, oc.Object_Name, oc.File_Name, ol.Link_Role, ol.Is_Cross_File
-          FROM ObjectLinks ol
-          JOIN ObjectCatalog oc ON ol.Source_UUID = oc.Object_UUID
-          WHERE ol.Target_UUID = ? AND ol.Link_Type = ?
-        `;
+        sql = `${baseChild} AND ol.Link_Type = ? UNION ALL ${baseParent} AND ol.Link_Type = ?`;
         params = [uuid, link_type, uuid, link_type];
+      } else {
+        sql = `${baseChild} UNION ALL ${baseParent}`;
+        params = [uuid, uuid];
       }
     }
 
@@ -480,6 +709,7 @@ module.exports = {
   getByUUID,
   getDetails,
   listObjects,
+  listCategorySummary,
   countObjects,
   searchObjects,
   countSearchResults,

@@ -1,13 +1,26 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import type { LayoutData, LayoutObject } from '../hooks/useLayoutData';
 import { useLayoutSearch } from '../hooks/useLayoutSearch';
 import { HighlightRing, LayoutObjectShape, SelectionRing, type LabelMode } from './LayoutObjectShape';
 import { LayoutObjectTooltip } from './LayoutObjectTooltip';
 import { LayoutTypeFilter } from './LayoutTypeFilter';
+import { buildObjectPath } from '../lib/navigation';
 
 type Props = {
   data: LayoutData;
+  /**
+   * Cross-Reference Highlight (PRD prd_cross_references_hilite.md §7.2):
+   * Externe UUID-Vorauswahl, die als weicher Filter wirkt, solange der User
+   * nicht selbst sucht oder einen Typ-Filter setzt.
+   */
+  externalMatchUuids?: Set<string> | null;
+  /**
+   * Callback, der bei explizitem User-Eingriff (Suche tippen, Typ-Filter
+   * aktivieren) gefeuert wird. Entfernt typischerweise den `?ref=`-Param aus
+   * der URL und beendet damit den Referenz-Modus.
+   */
+  onClearRef?: () => void;
 };
 
 /**
@@ -67,8 +80,12 @@ const PART_FILL: Record<string, string> = {
   Footer: '#fff8f0',
 };
 
-export const LayoutCanvas = forwardRef<LayoutCanvasHandle, Props>(({ data }, externalRef) => {
+export const LayoutCanvas = forwardRef<LayoutCanvasHandle, Props>(({ data, externalMatchUuids, onClearRef }, externalRef) => {
   const navigate = useNavigate();
+  // Aktuelle Detail-View-UUID — wird als Origin für Cross-Nav-Klicks mitgegeben.
+  // Auf der Vollbild-Layout-View (/layout/:uuid) ist es das Layout selbst;
+  // bei eingebetteter Nutzung in der DetailView ist es das Detail-Objekt.
+  const { uuid: currentUuid } = useParams<{ uuid: string }>();
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [transform, setTransform] = useState<ViewTransform>({ tx: 0, ty: 0, scale: 1 });
@@ -77,7 +94,7 @@ export const LayoutCanvas = forwardRef<LayoutCanvasHandle, Props>(({ data }, ext
   const [filterDetailsMode, setFilterDetailsMode] = useState(false);
   const [hoverState, setHoverState] = useState<{ uuid: string; x: number; y: number } | null>(null);
 
-  const search = useLayoutSearch(data.objects);
+  const search = useLayoutSearch(data.objects, externalMatchUuids ?? null, onClearRef);
 
   const viewport = useMemo(
     () => computeViewport(data.objects, data.parts),
@@ -179,7 +196,9 @@ export const LayoutCanvas = forwardRef<LayoutCanvasHandle, Props>(({ data }, ext
 
   const handleObjectClick = (o: LayoutObject) => {
     const target = resolveCrossNavTarget(o);
-    navigate(`/object/${target}`);
+    // PRD §7.4: Layout-UUID als Origin mitgeben — beim Sprung zum Field/Script
+    // weiß der Ziel-View, woher der Klick kam.
+    navigate(buildObjectPath(target, currentUuid ?? null));
   };
 
   const handleShapeMouseEnter = useCallback((uuid: string, x: number, y: number) => {

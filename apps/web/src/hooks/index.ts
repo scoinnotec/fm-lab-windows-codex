@@ -10,3 +10,5 @@ export { useRelationshipGraph } from './useRelationshipGraph';
 export type { RelationshipGraphData, TableOccurrence, Relationship, JoinPredicate, TOField } from './useRelationshipGraph';
 export { useGraphSearch } from './useGraphSearch';
 export type { GraphSearchAPI } from './useGraphSearch';
+export { useTheme } from './useTheme';
+export type { Theme } from './useTheme';

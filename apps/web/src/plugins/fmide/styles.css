@@ -7,8 +7,8 @@
   gap: 0.4rem;
   padding: 0.3rem 0.7rem;
   background: transparent;
-  border: 1px solid #646cff;
-  color: #646cff;
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.8rem;
@@ -19,8 +19,8 @@
 }
 
 .fmide-open-button:hover {
-  background: #646cff;
-  color: #fff;
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
 }
 
 .fmide-unicorn {
@@ -50,11 +50,5 @@
 }
 
 .fmide-quick-action:hover {
-  background-color: #646cff33;
-}
-
-@media (max-width: 768px) {
-  .fmide-quick-action:hover {
-    background-color: #646cff22;
-  }
+  background-color: var(--color-hover-bg);
 }

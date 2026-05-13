@@ -3,7 +3,7 @@
   flex-direction: column;
   height: 100vh;
   width: 100%;
-  background: var(--bg, #fafafa);
+  background: var(--color-bg-canvas);
 }
 
 .relationship-graph-header {
@@ -11,31 +11,32 @@
   align-items: center;
   gap: 1rem;
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #ddd;
-  background: #fff;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
   flex-shrink: 0;
 }
 
 .relationship-graph-header h1 {
   font-size: 1.1rem;
   margin: 0;
+  color: var(--color-text-primary);
 }
 
 .relationship-graph-back {
   text-decoration: none;
-  color: #111;
+  color: var(--color-text-primary);
   font-size: 0.9rem;
   font-family: inherit;
   padding: 0.25rem 0.6rem;
-  border: 1px solid #888;
+  border: 1px solid var(--color-border-strong);
   border-radius: 4px;
-  background: #f4f4f4;
+  background: var(--color-bg-surface);
   cursor: pointer;
 }
 
 .relationship-graph-back:hover {
-  background: #e8e8e8;
-  border-color: #555;
+  background: var(--color-hover-bg);
+  border-color: var(--color-accent);
 }
 
 .relationship-graph-file-selector {
@@ -65,12 +66,12 @@
   align-items: center;
   justify-content: center;
   padding: 2rem;
-  color: #555;
+  color: var(--color-text-secondary);
   font-size: 0.95rem;
 }
 
 .relationship-graph-error {
-  color: #b00020;
+  color: var(--color-error-fg);
 }
 
 .relationship-graph-canvas-wrapper {
@@ -85,25 +86,25 @@
   gap: 0.5rem;
   align-items: center;
   padding: 0.4rem 0.75rem;
-  background: #f0f0f0;
-  border-bottom: 1px solid #ddd;
+  background: var(--color-bg-surface-2);
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
 .relationship-graph-toolbar-actions button {
   padding: 0.25rem 0.6rem;
-  border: 1px solid #888;
+  border: 1px solid var(--color-border-strong);
   border-radius: 3px;
-  background: #fff;
-  color: #111;
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 500;
 }
 
 .relationship-graph-toolbar-actions button:hover {
-  background: #f0f0f0;
-  border-color: #555;
+  background: var(--color-hover-bg);
+  border-color: var(--color-accent);
 }
 
 .relationship-graph-search {
@@ -115,20 +116,20 @@
 .relationship-graph-search input[type="search"] {
   width: 220px;
   padding: 0.25rem 0.5rem;
-  border: 1px solid #888;
+  border: 1px solid var(--color-border-strong);
   border-radius: 3px;
   font-size: 0.85rem;
-  background: #fff;
-  color: #111;
+  background: var(--color-bg-input);
+  color: var(--color-text-primary);
 }
 
 .relationship-graph-search input[type="search"]::placeholder {
-  color: #888;
+  color: var(--color-text-muted);
 }
 
 .relationship-graph-search input[type="search"]:focus {
   outline: none;
-  border-color: #555;
+  border-color: var(--color-accent);
 }
 
 .relationship-graph-preselect-chip {
@@ -136,11 +137,11 @@
   align-items: center;
   gap: 0.3rem;
   padding: 0.15rem 0.4rem 0.15rem 0.55rem;
-  background: #fde8e8;
-  border: 1px solid #dc2626;
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
   border-radius: 12px;
   font-size: 0.78rem;
-  color: #991b1b;
+  color: var(--color-error-fg);
   white-space: nowrap;
 }
 
@@ -151,7 +152,7 @@
 .relationship-graph-preselect-chip button {
   background: transparent;
   border: none;
-  color: #991b1b;
+  color: var(--color-error-fg);
   cursor: pointer;
   font-size: 0.85rem;
   line-height: 1;
@@ -160,30 +161,30 @@
 }
 
 .relationship-graph-preselect-chip button:hover {
-  background: #f9c7c7;
+  background: var(--color-error-border);
 }
 
 .relationship-graph-match-count {
   font-size: 0.78rem;
-  color: #555;
+  color: var(--color-text-secondary);
   font-style: italic;
 }
 
 .relationship-graph-stats {
   margin-left: auto;
   font-size: 0.8rem;
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 .relationship-graph-canvas {
   flex: 1;
   overflow: hidden;
-  background: #f7f7f7;
+  background: var(--color-bg-canvas);
   position: relative;
   user-select: none;
 }
 
 .relationship-graph-canvas svg .to-box:hover .to-box-body {
   stroke-width: 2;
-  stroke: #2266cc;
+  stroke: var(--color-accent);
 }

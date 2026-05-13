@@ -1105,7 +1105,13 @@ FROM script_steps CROSS JOIN filename_normalized fn
 WHERE xml_extract_text(step_xml, '/Step/@name')[1] LIKE '%Perform Script%'
   AND xml_extract_text(step_xml, '//ScriptReference/@UUID')[1] IS NOT NULL;
 
--- Set Field / Go to Field / Go to Related Record → FieldReference
+-- Alle Step-Typen mit eingebetteten <FieldReference>-Elementen
+-- (PRD prd_universal_field_refs_in_steps.md §4.1)
+-- Universelle Erfassung: unnest jeder FieldReference im Step-XML → eine Zeile pro
+-- Feld. Step-Filter entfällt — XPath '//FieldReference' matched in 22 Step-Typen
+-- (Set Field, Sort Records, Import Records, Perform Find, Replace Field Contents,
+-- Show Custom Dialog, etc.). TO-Auflösung relativ zur FieldReference, damit Steps
+-- mit mehreren Feld-TO-Paaren (Import Records) korrekt aufgelöst werden.
 WITH filename_normalized AS (
     SELECT regexp_replace(
         xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
@@ -1121,24 +1127,33 @@ script_steps AS (
         xml_extract_text(script_xml, '/Script/ScriptReference/@UUID')[1] as Script_UUID,
         unnest(xml_extract_elements(script_xml, '/Script/ObjectList/Step')) as step_xml
     FROM raw_scripts
+),
+step_field_refs AS (
+    SELECT
+        Script_UUID,
+        xml_extract_text(step_xml, '/Step/UUID')[1] as Step_UUID,
+        xml_extract_text(step_xml, '/Step/@name')[1] as Step_Name,
+        xml_extract_text(step_xml, '/Step/@index')[1] as Step_Index,
+        unnest(xml_extract_elements(step_xml, '//FieldReference')) as field_ref_xml
+    FROM script_steps
 )
 INSERT INTO XMLStepReferences
-SELECT Script_UUID,
-    xml_extract_text(step_xml, '/Step/UUID')[1] as Step_UUID,
-    xml_extract_text(step_xml, '/Step/@name')[1] as Step_Name,
-    xml_extract_text(step_xml, '/Step/@index')[1] as Step_Index,
+SELECT
+    Script_UUID,
+    Step_UUID,
+    Step_Name,
+    Step_Index,
     'field' as Ref_Type,
-    xml_extract_text(step_xml, '//FieldReference/@UUID')[1] as Ref_UUID,
-    xml_extract_text(step_xml, '//FieldReference/@name')[1] as Ref_Name,
+    xml_extract_text(field_ref_xml, '/FieldReference/@UUID')[1] as Ref_UUID,
+    xml_extract_text(field_ref_xml, '/FieldReference/@name')[1] as Ref_Name,
     fn.File_Name,
-    -- TO-Info aus <TableOccurrenceReference> im Step-XML (PRD §2 / §5.2)
-    NULLIF(xml_extract_text(step_xml, '//TableOccurrenceReference/@name')[1], '') AS TO_Name,
-    NULLIF(xml_extract_text(step_xml, '//TableOccurrenceReference/@UUID')[1], '') AS TO_UUID,
+    -- TO-Auflösung relativ zum FieldReference-Element (PRD §3.2 / §5.1)
+    NULLIF(xml_extract_text(field_ref_xml, '/FieldReference/TableOccurrenceReference/@name')[1], '') AS TO_Name,
+    NULLIF(xml_extract_text(field_ref_xml, '/FieldReference/TableOccurrenceReference/@UUID')[1], '') AS TO_UUID,
     NULL AS Data_Source_Name, NULL AS Data_Source_UUID,
     NULL AS Variable_Scope, NULL AS Usage_Type
-FROM script_steps CROSS JOIN filename_normalized fn
-WHERE xml_extract_text(step_xml, '/Step/@name')[1] IN ('Set Field', 'Go to Field', 'Go to Related Record')
-  AND xml_extract_text(step_xml, '//FieldReference/@UUID')[1] IS NOT NULL;
+FROM step_field_refs CROSS JOIN filename_normalized fn
+WHERE xml_extract_text(field_ref_xml, '/FieldReference/@UUID')[1] IS NOT NULL;
 
 -- Go to Related Record → TableOccurrenceReference (PRD prd_rest_api_token_gtrr.md §4.1)
 -- GTRR enthält kein <FieldReference>; das Ziel ist die TO. Heimat/Cross-File werden
@@ -2072,7 +2087,12 @@ ddr_calc_raw AS (
         unnest(xml_extract_elements(xml, '//DDR_INFO/Calculation/ObjectList/*')) as calc_elem
     FROM read_xml_objects(getvariable('fm_xml'), maximum_file_size=getvariable('max_filesize'))
 ),
-calc_with_chunks AS (
+-- Chunk-Index in XML-Dokumentreihenfolge (PRD prd_universal_function_links.md §4):
+-- Zwei parallele unnest()-Aufrufe iterieren synchron pro Zeile. Die Chunk-Liste
+-- und ein begleitendes generate_series mit derselben Länge erzeugen einen
+-- deterministischen, lesegerechten Chunk_Index. Vorgängerlösung mit
+-- ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) war nicht-deterministisch.
+calc_with_chunk_lists AS (
     SELECT
         regexp_extract(
             calc_elem::VARCHAR,
@@ -2080,15 +2100,23 @@ calc_with_chunks AS (
             1
         ) as Calc_UUID,
         xml_extract_text(calc_elem, '//*/@hash')[1] as Calc_Hash,
-        unnest(xml_extract_elements(calc_elem, '//ChunkList/Chunk')) as chunk_xml
+        xml_extract_elements(calc_elem, '//ChunkList/Chunk') as chunks
     FROM ddr_calc_raw
     WHERE xml_extract_text(calc_elem, '//*/@datatype')[1] = 'ChunkList'
+),
+calc_with_chunks AS (
+    SELECT
+        Calc_UUID,
+        Calc_Hash,
+        unnest(chunks) as chunk_xml,
+        unnest(generate_series(1, len(chunks))) as chunk_index
+    FROM calc_with_chunk_lists
 )
 INSERT INTO DDR_Calculations
 SELECT
     Calc_UUID,
     Calc_Hash,
-    ROW_NUMBER() OVER (PARTITION BY Calc_UUID ORDER BY (SELECT NULL)) as Chunk_Index,
+    chunk_index as Chunk_Index,
     xml_extract_text(chunk_xml, '/Chunk/@type')[1] as Chunk_Type,
     COALESCE(
         xml_extract_text(chunk_xml, 'text()')[1],
@@ -2108,11 +2136,12 @@ ON CONFLICT (Calc_UUID, Chunk_Index, File_Name) DO UPDATE SET
 -- ============================================
 -- Pro `MBS`-PluginFunctionRef-Chunk wird der fachliche MBS-Funktionsname (erstes
 -- Argument, z.B. "List.AddPrefix") aus den NoRef-Chunks derselben Calculation
--- ermittelt. Das DDR schreibt Chunks **nicht** in linearer Calc-Lese-Reihenfolge,
--- daher kein Lookup über `Chunk_Index ± 1`. Stattdessen werden pro Calc_UUID:
+-- ermittelt. Seit PRD prd_universal_function_links.md §4 steht Chunk_Index in
+-- XML-Dokumentreihenfolge — die Pairing-Heuristik nutzt nur die relative
+-- Reihenfolge pro Liste:
 --   (a) alle MBS-PluginFunctionRef-Chunks und
 --   (b) alle NoRef-Chunks mit Pattern `( "..."` (= MBS-Argumentliste)
--- jeweils nach Chunk_Index sortiert und 1:1 per ROW_NUMBER gemappt.
+-- werden nach Chunk_Index sortiert und 1:1 per ROW_NUMBER gemappt.
 -- Bei dynamischem ersten Argument (`MBS( $name ; … )`) liefert die NoRef-Liste
 -- weniger Treffer als die MBS-Liste — dann bleibt SubName NULL (kein subFunction
 -- im Tokens-Output, siehe PRD §3.4).
@@ -2170,6 +2199,74 @@ LEFT JOIN subname_chunks sc
 
 
 -- ============================================
+-- GetSubparameterMap (PRD prd_universal_function_links.md §7)
+-- ============================================
+-- Get(<SubParameter>) ist eine FileMaker-Container-Funktion: pro Sub-Parameter
+-- liefert sie einen anderen Wert. Im DDR steht der Sub-Parameter als eigener
+-- FunctionRef-Chunk innerhalb von Get( ... ) — Pattern (nach Chunk-Reorder
+-- gemäß §4 immer in dieser Reihenfolge):
+--   Chunk N:   FunctionRef = 'Get'
+--   Chunk N+1: NoRef       = '(' (mit optionalem Whitespace)
+--   Chunk N+2: FunctionRef = '<SubParameter>'  (z.B. 'LayoutName')
+--   Chunk N+3: NoRef       = ')...'
+-- Bei dynamischen Aufrufen (Get($name) oder Get(Abs(...))) bleibt SubParameter
+-- NULL (Chunk N+2 ist VariableReference, FieldRef oder eine andere Funktion
+-- die in der fm_reference NICHT als is_get_function markiert ist).
+-- Die Get-Familie ist hier auf 'Get' beschränkt; lokalisierte Tokens (Holen,
+-- Recibir, …) erscheinen im DDR praktisch nicht, weil FM die FunctionRefs auf
+-- den kanonischen Namen normalisiert. Bei Bedarf erweiterbar.
+
+CREATE TABLE IF NOT EXISTS GetSubparameterMap (
+    Calc_UUID VARCHAR NOT NULL,
+    File_Name VARCHAR NOT NULL,
+    Get_Chunk_Index BIGINT NOT NULL,   -- Index des Get-FunctionRef-Chunks
+    SubParameter VARCHAR,               -- z.B. 'ApplicationVersion', NULL bei dynamisch
+    PRIMARY KEY (Calc_UUID, File_Name, Get_Chunk_Index)
+);
+
+-- Idempotenz: bestehende Einträge der aktuellen Datei entfernen
+DELETE FROM GetSubparameterMap WHERE File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+);
+
+INSERT INTO GetSubparameterMap
+WITH file_chunks AS (
+    SELECT d.*
+    FROM DDR_Calculations d
+    WHERE d.File_Name = (
+        SELECT regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+        ) FROM read_xml_objects(getvariable('fm_xml'),
+            maximum_file_size=getvariable('max_filesize'))
+    )
+),
+chunks_with_lead AS (
+    SELECT
+        Calc_UUID, File_Name, Chunk_Index, Chunk_Type, Chunk_Content,
+        LEAD(Chunk_Type, 1) OVER w AS Next_Type,
+        LEAD(Chunk_Type, 2) OVER w AS Next2_Type,
+        LEAD(Chunk_Content, 2) OVER w AS Next2_Content
+    FROM file_chunks
+    WINDOW w AS (PARTITION BY Calc_UUID, File_Name ORDER BY Chunk_Index)
+)
+SELECT
+    Calc_UUID,
+    File_Name,
+    Chunk_Index AS Get_Chunk_Index,
+    CASE
+        WHEN Next_Type = 'NoRef' AND Next2_Type = 'FunctionRef'
+            THEN regexp_extract(Next2_Content, '>([^<]+)</Chunk>', 1)
+        ELSE NULL
+    END AS SubParameter
+FROM chunks_with_lead
+WHERE Chunk_Type = 'FunctionRef'
+  AND regexp_extract(Chunk_Content, '>([^<]+)</Chunk>', 1) = 'Get';
+
+
+-- ============================================
 -- XMLCalcReferences (PRD Erweiterte Referenzen v1)
 -- ============================================
 -- Resolved DDR-Refs (FieldRef + CustomFunctionRef) aus allen Calculation-Quellen:
@@ -2216,8 +2313,18 @@ CREATE TABLE IF NOT EXISTS PluginFunctionUsages (
     Subrole VARCHAR,
     Plugin_Function_Name VARCHAR,
     Calc_Hash VARCHAR,
-    File_Name VARCHAR
+    File_Name VARCHAR,
+    -- PRD prd_universal_function_links.md §6.3: Positionsbezogene Spalten,
+    -- damit (Source, Calc_UUID, Plugin_Chunk_Index) eindeutig auf einen SubName
+    -- in MBS_SubnameMap mappt. Calc_Hash-Joins explodieren wegen Hash-Dedup
+    -- (1 Hash → bis zu 58k Calc_UUIDs); diese beiden Spalten lösen das.
+    Calc_UUID VARCHAR,
+    Plugin_Chunk_Index BIGINT
 );
+
+-- Additive Migration für Bestands-DBs (Reihenfolge identisch zum CREATE TABLE).
+ALTER TABLE PluginFunctionUsages ADD COLUMN IF NOT EXISTS Calc_UUID VARCHAR;
+ALTER TABLE PluginFunctionUsages ADD COLUMN IF NOT EXISTS Plugin_Chunk_Index BIGINT;
 
 -- Idempotenz: bestehende Einträge der aktuellen Datei entfernen
 DELETE FROM XMLCalcReferences WHERE File_Name = (
@@ -2289,7 +2396,9 @@ SELECT
     f.Field_UUID, 'Field', NULL, NULL,
     regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
     d.Calc_Hash,
-    d.File_Name
+    d.File_Name,
+    d.Calc_UUID,
+    d.Chunk_Index
 FROM FieldsForTables f
 JOIN DDR_Calculations d ON f.DDR_Hash = d.Calc_Hash AND f.File_Name = d.File_Name
 WHERE d.Chunk_Type = 'PluginFunctionRef'
@@ -2352,7 +2461,9 @@ SELECT
     f.Field_UUID, 'Field', NULL, NULL,
     regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
     d.Calc_Hash,
-    d.File_Name
+    d.File_Name,
+    d.Calc_UUID,
+    d.Chunk_Index
 FROM FieldsForTables f
 JOIN DDR_Calculations d ON f.AE_Calc_Hash = d.Calc_Hash AND f.File_Name = d.File_Name
 WHERE d.Chunk_Type = 'PluginFunctionRef'
@@ -2419,7 +2530,9 @@ SELECT
     cf.CF_UUID, 'CustomFunction', NULL, NULL,
     regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
     d.Calc_Hash,
-    d.File_Name
+    d.File_Name,
+    d.Calc_UUID,
+    d.Chunk_Index
 FROM CustomFunctionsCatalog cf
 JOIN DDR_Calculations d ON cf.DDR_Hash = d.Calc_Hash AND cf.File_Name = d.File_Name
 WHERE d.Chunk_Type = 'PluginFunctionRef'
@@ -2533,7 +2646,9 @@ SELECT
     sh.Script_UUID, 'Script', sh.Step_Index, sh.Subrole,
     regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
     sh.Calc_Hash,
-    sh.File_Name
+    sh.File_Name,
+    d.Calc_UUID,
+    d.Chunk_Index
 FROM step_hashes sh
 JOIN DDR_Calculations d
   ON sh.Calc_Hash = d.Calc_Hash
@@ -2638,7 +2753,9 @@ SELECT
     loh.Object_UUID, 'LayoutObject', NULL, loh.Subrole,
     regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
     loh.Calc_Hash,
-    loh.File_Name
+    loh.File_Name,
+    d.Calc_UUID,
+    d.Chunk_Index
 FROM layout_obj_hashes loh
 JOIN DDR_Calculations d
   ON loh.Calc_Hash = d.Calc_Hash
@@ -2974,6 +3091,179 @@ JOIN DDR_Calculations d
   ON loh.Calc_Hash = d.Calc_Hash
  AND loh.File_Name = d.File_Name
 WHERE d.Chunk_Type = 'VariableReference';
+
+
+-- ============================================
+-- A.7 — Built-in FunctionRef in XMLCalcReferences
+-- (PRD prd_universal_function_links.md §5)
+-- ============================================
+-- Built-in FileMaker-Funktionen (Get, Case, If, Length, …) erscheinen im DDR als
+-- FunctionRef-Chunks. Wir spiegeln sie als Ref_Type='function' in XMLCalcReferences
+-- für die fünf Quell-Kontexte. Built-ins haben keine UUID in der FileMaker-Lösung —
+-- die kanonische Identität liegt in fm_reference.functions / function_name_lookup.
+--
+-- Für den Token 'Get' wird zusätzlich Ref_SubName aus GetSubparameterMap befüllt
+-- (Pendant zur PluginFunction-Sub-Function-Auflösung).
+
+-- A.7.1 FunctionRef in Calculated Fields (DDR_Hash)
+INSERT INTO XMLCalcReferences
+SELECT
+    f.Field_UUID, 'Field', NULL, NULL,
+    d.Calc_Hash, 'function',
+    NULL,  -- Ref_UUID: built-in functions haben keine UUID
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1) AS Ref_Name,
+    d.File_Name,
+    NULL, NULL,
+    NULL, NULL,
+    CASE WHEN regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1) = 'Get'
+         THEN g.SubParameter ELSE NULL END
+FROM FieldsForTables f
+JOIN DDR_Calculations d ON f.DDR_Hash = d.Calc_Hash AND f.File_Name = d.File_Name
+LEFT JOIN GetSubparameterMap g
+       ON g.Calc_UUID = d.Calc_UUID
+      AND g.File_Name = d.File_Name
+      AND g.Get_Chunk_Index = d.Chunk_Index
+WHERE d.Chunk_Type = 'FunctionRef'
+  AND f.DDR_Hash IS NOT NULL
+  AND f.File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+  );
+
+-- A.7.2 FunctionRef in AutoEnter-Calc (AE_Calc_Hash)
+INSERT INTO XMLCalcReferences
+SELECT
+    f.Field_UUID, 'Field', NULL, NULL,
+    d.Calc_Hash, 'function',
+    NULL,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    d.File_Name,
+    NULL, NULL,
+    NULL, NULL,
+    CASE WHEN regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1) = 'Get'
+         THEN g.SubParameter ELSE NULL END
+FROM FieldsForTables f
+JOIN DDR_Calculations d ON f.AE_Calc_Hash = d.Calc_Hash AND f.File_Name = d.File_Name
+LEFT JOIN GetSubparameterMap g
+       ON g.Calc_UUID = d.Calc_UUID
+      AND g.File_Name = d.File_Name
+      AND g.Get_Chunk_Index = d.Chunk_Index
+WHERE d.Chunk_Type = 'FunctionRef'
+  AND f.AE_Calc_Hash IS NOT NULL
+  AND f.File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+  );
+
+-- A.7.3 FunctionRef in CustomFunctions
+INSERT INTO XMLCalcReferences
+SELECT
+    cf.CF_UUID, 'CustomFunction', NULL, NULL,
+    d.Calc_Hash, 'function',
+    NULL,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    d.File_Name,
+    NULL, NULL,
+    NULL, NULL,
+    CASE WHEN regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1) = 'Get'
+         THEN g.SubParameter ELSE NULL END
+FROM CustomFunctionsCatalog cf
+JOIN DDR_Calculations d ON cf.DDR_Hash = d.Calc_Hash AND cf.File_Name = d.File_Name
+LEFT JOIN GetSubparameterMap g
+       ON g.Calc_UUID = d.Calc_UUID
+      AND g.File_Name = d.File_Name
+      AND g.Get_Chunk_Index = d.Chunk_Index
+WHERE d.Chunk_Type = 'FunctionRef'
+  AND cf.DDR_Hash IS NOT NULL
+  AND cf.File_Name = (
+    SELECT regexp_replace(
+        xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+    ) FROM read_xml_objects(getvariable('fm_xml'),
+        maximum_file_size=getvariable('max_filesize'))
+  );
+
+-- A.7.4 FunctionRef in Script-Steps
+WITH step_hashes AS (
+    SELECT
+        s.Script_UUID,
+        s.Step_Index::VARCHAR AS Step_Index,
+        s.File_Name,
+        unnest(regexp_extract_all(s.Parameters_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 1)) AS Calc_Hash,
+        unnest(regexp_extract_all(s.Parameters_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 2)) AS Subrole
+    FROM StepsForScripts s
+    WHERE s.Parameters_XML LIKE '%DDRREF%'
+      AND s.File_Name = (
+        SELECT regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+        ) FROM read_xml_objects(getvariable('fm_xml'),
+            maximum_file_size=getvariable('max_filesize'))
+      )
+)
+INSERT INTO XMLCalcReferences
+SELECT
+    sh.Script_UUID, 'Script', sh.Step_Index, sh.Subrole,
+    sh.Calc_Hash, 'function',
+    NULL,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    sh.File_Name,
+    NULL, NULL,
+    NULL, NULL,
+    CASE WHEN regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1) = 'Get'
+         THEN g.SubParameter ELSE NULL END
+FROM step_hashes sh
+JOIN DDR_Calculations d
+  ON sh.Calc_Hash = d.Calc_Hash
+ AND sh.File_Name = d.File_Name
+LEFT JOIN GetSubparameterMap g
+       ON g.Calc_UUID = d.Calc_UUID
+      AND g.File_Name = d.File_Name
+      AND g.Get_Chunk_Index = d.Chunk_Index
+WHERE d.Chunk_Type = 'FunctionRef';
+
+-- A.7.5 FunctionRef in LayoutObjects
+WITH layout_obj_hashes AS (
+    SELECT
+        lo.Object_UUID,
+        lo.File_Name,
+        unnest(regexp_extract_all(lo.Object_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 1)) AS Calc_Hash,
+        unnest(regexp_extract_all(lo.Object_XML,
+            'kind="ChunkList" hash="([^"]+)"[^>]*>_[A-F0-9-]{36}_([^<]+)</DDRREF>', 2)) AS Subrole
+    FROM LayoutObjects lo
+    WHERE lo.Object_XML LIKE '%DDRREF%'
+      AND lo.File_Name = (
+        SELECT regexp_replace(
+            xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
+        ) FROM read_xml_objects(getvariable('fm_xml'),
+            maximum_file_size=getvariable('max_filesize'))
+      )
+)
+INSERT INTO XMLCalcReferences
+SELECT
+    loh.Object_UUID, 'LayoutObject', NULL, loh.Subrole,
+    loh.Calc_Hash, 'function',
+    NULL,
+    regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1),
+    loh.File_Name,
+    NULL, NULL,
+    NULL, NULL,
+    CASE WHEN regexp_extract(d.Chunk_Content, '>([^<]+)</Chunk>', 1) = 'Get'
+         THEN g.SubParameter ELSE NULL END
+FROM layout_obj_hashes loh
+JOIN DDR_Calculations d
+  ON loh.Calc_Hash = d.Calc_Hash
+ AND loh.File_Name = d.File_Name
+LEFT JOIN GetSubparameterMap g
+       ON g.Calc_UUID = d.Calc_UUID
+      AND g.File_Name = d.File_Name
+      AND g.Get_Chunk_Index = d.Chunk_Index
+WHERE d.Chunk_Type = 'FunctionRef';
 
 
 -- ============================================

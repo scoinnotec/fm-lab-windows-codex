@@ -1,44 +1,46 @@
-# macOS-spezifische Dateien
+# macOS-specific files
 .DS_Store
 
-# Umgebungsvariablen-Dateien
+# Environment variable files
 .env
 .env.local
 
-# IDE-spezifische Dateien
+# IDE-specific files
 .vscode/
 .idea/
 
-# Log-Dateien
+# Log files
 *.log
 logs/*
 !logs/.gitkeep
 
-# Datenbank-Dateien
+# Database files
 *.duckdb
 *.duckdb.wal
 db/*
 !db/.gitkeep
+# Reference DB is shipped with the repo (FileMaker function and script step reference)
+!rest-api/db/fm_reference.duckdb
 
-# Daten-Verzeichnis
+# Data directory
 data/*
 !data/.gitkeep
 
-# XML Dateien
+# XML files
 xml/*
 !xml/.gitkeep
 
-# Docs Verzeichnis (per Install-Skills nachgeladen)
+# Docs directory (loaded on demand via install skills)
 docs/*
 !docs/.gitkeep
 !docs/agents/
 !docs/agents/**
 
-# Node.js Dependencies
+# Node.js dependencies
 node_modules/
 package-lock.json
 
-# Workspaces - Build Artifacts
+# Workspaces - build artifacts
 rest-api/logs
 rest-api/.env
 packages/shared/dist/
@@ -51,11 +53,11 @@ apps/*/build
 apps/*/.env.local
 apps/*/.env.production
 
-# Claude lokale Settings
+# Local Claude settings
 .claude/settings.json
 .claude/settings.local.json
 .claude/worktrees/
 
-# Plugin-Settings (lokal, wird beim ersten Start automatisch erzeugt)
+# Plugin settings (local, generated on first run)
 .fmlab/plugins.json
 .fmlab/plugins/

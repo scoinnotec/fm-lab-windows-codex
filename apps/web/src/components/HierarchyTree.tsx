@@ -1,8 +1,9 @@
 import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { GroupedReferences, ReferenceItem } from '../types';
 import { ReferencesFilter } from './ReferencesFilter';
 import { useUrlState, stringSetCodec } from '../hooks/useUrlState';
+import { buildNavigablePath } from '../lib/navigation';
 
 const EMPTY_TYPES = new Set<string>();
 
@@ -38,11 +39,36 @@ function buildSearchText(ref: ReferenceItem): string {
  */
 export const HierarchyTree = forwardRef<HierarchyTreeHandle, HierarchyTreeProps>(({ references }, externalRef) => {
   const navigate = useNavigate();
+  const { uuid: currentUuid } = useParams<{ uuid: string }>();
   // URL als Single Source of Truth — Stack erhält Such- und Filterstand
   // beim Zurück-Navigieren automatisch (Tab-Param 'tab' liegt in DetailView).
+  //
+  // Lesen via useUrlState; Schreiben für User-Interaktionen via setSearchParams
+  // direkt — analog useLayoutSearch. Begründung: bei expliziter User-Aktion
+  // (Pille klicken, Tippen) wird `?ref=` ATOMAR im selben URL-Update mitentfernt,
+  // damit der Filter sich nicht mit dem Referenz-Modus schneidet.
   const [query, setQuery] = useUrlState<string>('q', '');
   const [activeTypes, setActiveTypes] = useUrlState<Set<string>>('types', EMPTY_TYPES, stringSetCodec);
+  const [, setSearchParams] = useSearchParams();
   const treeRef = useRef<HTMLElement>(null);
+
+  /**
+   * Atomarer URL-Update für User-Interaktionen: führt einen Updater auf den
+   * URLSearchParams aus UND entfernt im selben Tick den `?ref=`-Param. Beide
+   * Mutationen landen in EINEM `setSearchParams`-Call — keine Race-Condition
+   * zwischen separaten useUrlState-Hook-Instanzen (siehe useLayoutSearch).
+   */
+  const runUserUpdate = useCallback(
+    (updater: (p: URLSearchParams) => void) => {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        updater(next);
+        if (next.has('ref')) next.delete('ref');
+        return next;
+      }, { replace: true });
+    },
+    [setSearchParams],
+  );
 
   const queryRef = useRef(query);
   queryRef.current = query;
@@ -58,17 +84,23 @@ export const HierarchyTree = forwardRef<HierarchyTreeHandle, HierarchyTreeProps>
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), []);
 
-  const handleReferenceClick = (uuid: string) => {
-    navigate(`/object/${uuid}`);
+  const handleReferenceClick = (ref: ReferenceItem) => {
+    // PRD §7.4 + Container-Resolution:
+    // - Aktuelles Objekt als Origin mitgeben (Standard-Highlight-Mechanik).
+    // - Wenn das Ziel ein Sub-Knoten ist (Container_UUID gesetzt, z.B.
+    //   LayoutObject → Layout), wird transparent der Container geöffnet und
+    //   der Sub-Knoten als ref gesetzt — der spezifischere Treffer ist die
+    //   nützlichere Hervorhebung.
+    navigate(buildNavigablePath(ref.uuid, currentUuid ?? null, ref.Container_UUID ?? null));
   };
 
   // Item-Handler: Enter/Space löst Navigation aus. Pfeiltasten werden hier
   // bewusst NICHT abgefangen — sie laufen via Bubbling in den Container-Handler,
   // damit eine einzige Quelle die Auf-/Abwärts-Logik kontrolliert.
-  const handleItemKeyDown = (e: React.KeyboardEvent, uuid: string) => {
+  const handleItemKeyDown = (e: React.KeyboardEvent, ref: ReferenceItem) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      handleReferenceClick(uuid);
+      handleReferenceClick(ref);
     }
   };
 
@@ -141,16 +173,34 @@ export const HierarchyTree = forwardRef<HierarchyTreeHandle, HierarchyTreeProps>
   const matchCount = matches.parent.length + matches.child.length
     + matches.structuralParent.length + matches.structuralChild.length;
 
+  // User-Klick auf Filter-Pille: atomar Filter setzen + ref-Param entfernen.
   const toggleType = (type: string) => {
-    setActiveTypes(prev => {
-      const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
-      return next;
+    runUserUpdate(p => {
+      const current = new Set(
+        (p.get('types') ?? '').split(',').map(s => s.trim()).filter(Boolean),
+      );
+      if (current.has(type)) current.delete(type);
+      else current.add(type);
+      if (current.size === 0) p.delete('types');
+      else p.set('types', Array.from(current).join(','));
     });
   };
 
+  // "Filter zurücksetzen"-Link und ESC-Stack — programmatische Zurücknahme,
+  // ref-Modus wird nicht angerührt (kein User-Filter-Eingriff).
   const clearTypes = () => setActiveTypes(EMPTY_TYPES);
+
+  // Sucheingabe: bei nicht-leerer Eingabe atomar mit ref-Clear; leerer Wert
+  // (Backspace, Clear-Button, ESC) ist programmatisch und lässt ref unverändert.
+  const handleQueryChange = (q: string) => {
+    if (q === '') {
+      setQuery('');
+      return;
+    }
+    runUserUpdate(p => {
+      p.set('q', q);
+    });
+  };
 
   // Vom Suchfeld via Pfeil-Down/-Up zum ersten/letzten Listenelement springen.
   // Vermeidet das mehrfache TAB-Springen über Pillen und Reset-Link.
@@ -167,8 +217,8 @@ export const HierarchyTree = forwardRef<HierarchyTreeHandle, HierarchyTreeProps>
     <li
       key={`${ref.uuid}-${ref.Link_Role}`}
       className="reference-item"
-      onClick={() => handleReferenceClick(ref.uuid)}
-      onKeyDown={(e) => handleItemKeyDown(e, ref.uuid)}
+      onClick={() => handleReferenceClick(ref)}
+      onKeyDown={(e) => handleItemKeyDown(e, ref)}
       tabIndex={0}
       role="button"
       aria-label={`Navigiere zu ${ref.Object_Type}: ${ref.Object_Name}`}
@@ -210,7 +260,7 @@ export const HierarchyTree = forwardRef<HierarchyTreeHandle, HierarchyTreeProps>
           onToggleType={toggleType}
           onClearTypes={clearTypes}
           query={query}
-          onQueryChange={setQuery}
+          onQueryChange={handleQueryChange}
           matchCount={matchCount}
           totalCount={totalCount}
           onJumpToList={jumpToList}

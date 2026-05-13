@@ -11,8 +11,8 @@
 /* Back button */
 .back-button {
   background: none;
-  border: 1px solid #646cff;
-  color: #646cff;
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
   padding: 0.3rem 0.6rem;
   white-space: nowrap;
   cursor: pointer;
@@ -21,15 +21,15 @@
 }
 
 .back-button:hover {
-  background: #646cff;
-  color: #fff;
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
 }
 
 /* Breadcrumb links */
 .breadcrumb-link {
   background: none;
   border: none;
-  color: #646cff;
+  color: var(--color-accent);
   cursor: pointer;
   padding: 0;
   font-size: inherit;
@@ -38,21 +38,21 @@
 }
 
 .breadcrumb-link:hover {
-  color: #535bf2;
+  color: var(--color-accent-hover);
 }
 
 /* Object Header */
 .detail-object-header {
   padding: 1rem;
-  background-color: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
 }
 
 .detail-file-name {
   margin-bottom: 0.25rem;
   font-size: 0.85rem;
-  color: #888;
+  color: var(--color-text-muted);
 }
 
 .detail-title {
@@ -70,22 +70,22 @@
 
 .detail-source {
   font-size: 0.85rem;
-  color: #888;
+  color: var(--color-text-muted);
 }
 
 .detail-rg-link {
   font-size: 0.85rem;
-  color: #4858c2;
+  color: var(--color-accent-soft-fg);
   text-decoration: none;
   padding: 0.1rem 0.5rem;
-  border: 1px solid #aab3e8;
+  border: 1px solid var(--color-accent-ring);
   border-radius: 3px;
-  background: #f4f6ff;
+  background: var(--color-accent-soft-bg);
 }
 
 .detail-rg-link:hover {
-  background: #e6eaff;
-  border-color: #4858c2;
+  background: var(--color-hover-bg);
+  border-color: var(--color-accent);
 }
 
 .detail-uuid-row {
@@ -97,7 +97,7 @@
 
 .detail-uuid-row code {
   font-size: 0.8rem;
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 /* Copy button */
@@ -110,24 +110,24 @@
   padding: 0.25rem;
   background: transparent;
   border: 1px solid transparent;
-  color: #666;
+  color: var(--color-text-muted);
   transition: color 0.2s, border-color 0.2s;
 }
 
 .copy-button:hover {
-  color: #646cff;
-  border-color: #646cff;
+  color: var(--color-accent);
+  border-color: var(--color-accent);
   background: transparent;
 }
 
 .copy-button.copied {
-  color: #6bff6b;
+  color: var(--color-success-fg);
 }
 
 /* Separator */
 .detail-separator {
   border: none;
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid var(--color-border);
   margin: 1rem 0;
 }
 
@@ -142,8 +142,8 @@
   gap: 0.4rem;
   padding: 0.5rem 0.75rem;
   margin-bottom: 0.75rem;
-  background: #161616;
-  border: 1px solid #2a2a2a;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
 }
 
@@ -157,26 +157,26 @@
   flex: 1;
   max-width: 320px;
   padding: 0.3rem 0.55rem;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--color-border-strong);
   border-radius: 3px;
-  background: #0d0d0d;
-  color: #e0e0e0;
+  background: var(--color-bg-input);
+  color: var(--color-text-primary);
   font-size: 0.85rem;
   font-family: inherit;
 }
 
 .references-filter-search input[type="search"]::placeholder {
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 .references-filter-search input[type="search"]:focus {
   outline: none;
-  border-color: #646cff;
+  border-color: var(--color-accent);
 }
 
 .references-filter-count {
   font-size: 0.78rem;
-  color: #888;
+  color: var(--color-text-muted);
   font-style: italic;
 }
 
@@ -193,10 +193,10 @@
   gap: 0.2rem;
   padding: 0.12rem 0.55rem;
   font-size: 0.72rem;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--color-border-strong);
   border-radius: 999px;
-  background: #1f1f1f;
-  color: #ccc;
+  background: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
   cursor: pointer;
   white-space: nowrap;
   font-family: inherit;
@@ -204,19 +204,19 @@
 }
 
 .references-filter-pill:hover {
-  border-color: #646cff;
-  color: #fff;
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
 }
 
 .references-filter-pill.active {
-  background: #1a1a3a;
-  border-color: #646cff;
-  color: #646cff;
+  background: var(--color-accent-soft-bg);
+  border-color: var(--color-accent);
+  color: var(--color-accent-soft-fg);
   font-weight: 600;
 }
 
 .references-filter-pill-count {
-  color: #888;
+  color: var(--color-text-muted);
   font-size: 0.68rem;
   font-weight: 400;
   margin-left: 0.15rem;
@@ -233,14 +233,14 @@
   font-size: 0.72rem;
   background: transparent;
   border: none;
-  color: #646cff;
+  color: var(--color-accent);
   cursor: pointer;
   text-decoration: underline;
   font-family: inherit;
 }
 
 .references-filter-link:hover {
-  color: #8a92ff;
+  color: var(--color-accent-hover);
 }
 
 /* Hierarchy Tree */
@@ -256,7 +256,7 @@
   font-size: 1rem;
   font-weight: 600;
   margin-bottom: 0.5rem;
-  color: #aaa;
+  color: var(--color-text-secondary);
 }
 
 .reference-list {
@@ -270,7 +270,7 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--color-border);
   background: transparent;
   cursor: pointer;
   transition: background-color 0.2s;
@@ -281,29 +281,29 @@
 }
 
 .reference-item:hover {
-  background-color: #2a2a2a;
+  background-color: var(--color-hover-bg);
 }
 
 .reference-item:focus-visible {
-  outline: 2px solid #646cff;
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: -2px;
 }
 
 .ref-name {
   flex: 1;
-  color: #646cff;
+  color: var(--color-accent);
   font-weight: 500;
 }
 
 .ref-file {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 .cross-file-badge {
   font-size: 0.75rem;
-  background: #ff9800;
-  color: #000;
+  background: var(--color-warning-border);
+  color: var(--color-warning-fg);
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
   font-weight: 600;
@@ -311,14 +311,103 @@
 
 .ref-role {
   font-size: 0.8rem;
-  color: #666;
+  color: var(--color-text-muted);
   font-style: italic;
 }
 
 .no-references {
   padding: 1.5rem;
   text-align: center;
-  color: #666;
+  color: var(--color-text-muted);
+}
+
+/* RefOriginPill — Cross-Reference Highlight (PRD prd_cross_references_hilite.md §7.1) */
+.ref-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  margin: 0.75rem 0 0;
+  border: 1px solid var(--color-accent-ring);
+  border-left: 3px solid var(--color-accent);
+  border-radius: 6px;
+  background: var(--color-accent-soft-bg);
+  color: var(--color-accent-soft-fg);
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.ref-pill--unresolved {
+  border-color: var(--color-warning-border);
+  border-left-color: var(--color-warning-fg);
+  background: var(--color-warning-bg, var(--color-bg-elevated));
+  color: var(--color-warning-fg);
+}
+
+.ref-pill--error {
+  border-color: var(--color-danger-border, var(--color-warning-border));
+  border-left-color: var(--color-danger-fg, var(--color-warning-fg));
+  background: var(--color-danger-bg, var(--color-bg-elevated));
+  color: var(--color-danger-fg, var(--color-warning-fg));
+}
+
+.ref-pill--loading {
+  opacity: 0.7;
+}
+
+.ref-pill-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.ref-pill-label {
+  flex: 0 1 auto;
+}
+
+.ref-pill-type {
+  font-weight: 600;
+}
+
+.ref-pill-name {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.85em;
+}
+
+.ref-pill-file {
+  color: var(--color-text-muted);
+  font-size: 0.85em;
+}
+
+.ref-pill-sep {
+  color: var(--color-text-muted);
+}
+
+.ref-pill-count {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.ref-pill-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.ref-pill-dismiss:hover {
+  background: var(--color-hover-bg);
+  border-color: var(--color-border-strong);
 }
 
 /* Sub-navigation tabs (Phase 3b) */
@@ -330,9 +419,9 @@
 
 .tab-button {
   background: none;
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--color-border);
   border-left: none;
-  color: #888;
+  color: var(--color-text-muted);
   padding: 0.4rem 1rem;
   cursor: pointer;
   font-size: 0.85rem;
@@ -341,7 +430,7 @@
 }
 
 .tab-button:first-child {
-  border-left: 1px solid #2a2a2a;
+  border-left: 1px solid var(--color-border);
   border-radius: 4px 0 0 4px;
 }
 
@@ -350,18 +439,18 @@
 }
 
 .tab-button:hover:not(.disabled) {
-  color: #ccc;
-  background-color: #2a2a2a;
+  color: var(--color-text-primary);
+  background-color: var(--color-hover-bg);
 }
 
 .tab-button.active {
-  color: #646cff;
-  border-color: #646cff;
-  background-color: #1a1a3a;
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-soft-bg);
 }
 
 .tab-button.disabled {
-  color: #555;
+  color: var(--color-text-disabled);
   cursor: default;
   opacity: 0.5;
 }
@@ -370,7 +459,7 @@
 .tab-placeholder {
   padding: 2rem 1.5rem;
   text-align: center;
-  color: #666;
+  color: var(--color-text-muted);
   font-style: italic;
 }
 
@@ -379,7 +468,7 @@
   font-size: 1rem;
   font-weight: 600;
   margin-bottom: 0.75rem;
-  color: #aaa;
+  color: var(--color-text-secondary);
 }
 
 /* Object Detail (unified for all object types) */
@@ -388,15 +477,15 @@
 }
 
 .content-text {
-  background-color: #0d0d0d;
-  border: 1px solid #2a2a2a;
+  background-color: var(--color-code-bg);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 1rem;
   overflow-x: auto;
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   font-size: 0.85rem;
   line-height: 1.6;
-  color: #d4d4d4;
+  color: var(--color-code-fg);
   tab-size: 2;
   margin: 0;
 }
@@ -411,13 +500,22 @@
 }
 
 .content-line:hover {
-  background-color: #1a1a2e;
+  background-color: var(--color-hover-bg);
+}
+
+/* Cross-Reference Highlight: Substring-Markierung im Content-Block. */
+.fm-content-highlight {
+  background-color: var(--color-warning-border, #f6b73c);
+  color: inherit;
+  padding: 0 0.1em;
+  border-radius: 2px;
+  font-weight: 600;
 }
 
 /* Layout SVG container */
 .layout-svg-container {
-  background-color: #ffffff;
-  border: 1px solid #2a2a2a;
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 0.5rem;
   overflow: auto;
@@ -440,9 +538,9 @@
   width: 100%;
   min-height: 500px;
   height: 60vh;
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background-color: #1a1a1a;
+  background-color: var(--color-bg-surface);
 }
 
 .graph-controls {
@@ -453,8 +551,8 @@
 
 .graph-control-button {
   background: none;
-  border: 1px solid #2a2a2a;
-  color: #888;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
   padding: 0.25rem 0.6rem;
   cursor: pointer;
   border-radius: 4px;
@@ -464,9 +562,9 @@
 }
 
 .graph-control-button:hover {
-  color: #646cff;
-  border-color: #646cff;
-  background-color: #1a1a3a;
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-soft-bg);
 }
 
 .graph-legend {
@@ -475,7 +573,7 @@
   gap: 1rem;
   margin-bottom: 0.5rem;
   font-size: 0.75rem;
-  color: #666;
+  color: var(--color-text-muted);
   flex-wrap: wrap;
 }
 
@@ -503,7 +601,7 @@
 .legend-hint {
   margin-left: auto;
   font-style: italic;
-  color: #555;
+  color: var(--color-text-disabled);
 }
 
 /* Title row with fmIDE button */
@@ -527,163 +625,5 @@
   .reference-item {
     flex-direction: column;
     align-items: flex-start;
-  }
-}
-
-/* Light Mode */
-@media (prefers-color-scheme: light) {
-  .detail-object-header {
-    background-color: #f9f9f9;
-    border-color: #e0e0e0;
-  }
-
-  .detail-separator {
-    border-top-color: #e0e0e0;
-  }
-
-  .reference-item {
-    border-bottom-color: #e0e0e0;
-  }
-
-  .reference-item:hover {
-    background-color: #e8f4ff;
-  }
-
-  .hierarchy-section h2 {
-    color: #555;
-  }
-
-  .back-button:hover {
-    background: #646cff;
-    color: #fff;
-  }
-
-  .error-detail {
-    background: #ffe0e0;
-    border-color: #ffb0b0;
-    color: #cc0000;
-  }
-
-  .tab-button {
-    border-color: #e0e0e0;
-    color: #666;
-  }
-
-  .tab-button:first-child {
-    border-left-color: #e0e0e0;
-  }
-
-  .tab-button:hover:not(.disabled) {
-    color: #333;
-    background-color: #f0f0f0;
-  }
-
-  .tab-button.active {
-    color: #646cff;
-    border-color: #646cff;
-    background-color: #eef0ff;
-  }
-
-  .tab-button.disabled {
-    color: #aaa;
-  }
-
-  .tab-placeholder {
-    color: #999;
-  }
-
-  .type-detail-heading {
-    color: #555;
-  }
-
-  .content-text {
-    background-color: #f5f5f5;
-    border-color: #e0e0e0;
-    color: #333;
-  }
-
-  .content-line:hover {
-    background-color: #e8f4ff;
-  }
-
-  .layout-svg-container {
-    border-color: #e0e0e0;
-  }
-
-  .dependency-graph-container {
-    background-color: #f9f9f9;
-    border-color: #e0e0e0;
-  }
-
-  .graph-control-button {
-    border-color: #e0e0e0;
-    color: #666;
-  }
-
-  .graph-control-button:hover {
-    color: #646cff;
-    border-color: #646cff;
-    background-color: #eef0ff;
-  }
-
-  .graph-legend {
-    color: #999;
-  }
-
-  .legend-hint {
-    color: #aaa;
-  }
-
-  .references-filter {
-    background: #f7f7f7;
-    border-color: #e0e0e0;
-  }
-
-  .references-filter-search input[type="search"] {
-    background: #fff;
-    border-color: #c0c0c0;
-    color: #111;
-  }
-
-  .references-filter-search input[type="search"]::placeholder {
-    color: #888;
-  }
-
-  .references-filter-search input[type="search"]:focus {
-    border-color: #646cff;
-  }
-
-  .references-filter-count {
-    color: #666;
-  }
-
-  .references-filter-pill {
-    background: #fff;
-    border-color: #c0c0c0;
-    color: #444;
-    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
-  }
-
-  .references-filter-pill:hover {
-    border-color: #646cff;
-    color: #1a1a1a;
-  }
-
-  .references-filter-pill.active {
-    background: #eef0ff;
-    border-color: #646cff;
-    color: #4858c2;
-  }
-
-  .references-filter-pill-count {
-    color: #888;
-  }
-
-  .references-filter-link {
-    color: #2266cc;
-  }
-
-  .references-filter-link:hover {
-    color: #1a4f99;
   }
 }

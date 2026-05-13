@@ -41,6 +41,10 @@ SELECT
   sd.Step_Index AS line_index,
   CAST(GREATEST(0, sd.indent_level) AS INTEGER) AS indent,
   sd.Step_ID AS step_id,
+  sd.Step_UUID AS step_uuid,
+  -- Synthetischer ScriptStepType-UUID (PRD prd_pseudo_object_types_filter.md §5)
+  -- für Cross-Navigation vom Step-Namen zur Pseudo-Objekt-Detailseite.
+  md5('ScriptStepType::' || sd.Step_Name) AS step_type_uuid,
   sd.Step_Name AS step_name,
   sd.Is_Enabled AS enabled,
   sd.Parameter_Type AS parameter_type,

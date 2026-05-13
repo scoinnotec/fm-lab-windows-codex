@@ -1,0 +1,153 @@
+/* CustomFunction-Viewer — eigenständige Variablen-Anbindung an theme.css.
+ * Bindet NICHT auf ScriptViewer.css-Variablen, weil das CSS nur geladen wird,
+ * wenn ein Script angezeigt wird — eine direkt aufgerufene CustomFunction-
+ * Detailseite hätte sonst undefinierte Variablen (transparenter Popover etc.).
+ */
+
+.fm-customfunction {
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  padding: 0.5rem 1rem 0.75rem 1rem;
+}
+
+.fm-customfunction-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.3rem 0 0.6rem 0;
+  border-bottom: 1px solid var(--color-border-strong);
+  margin-bottom: 0.5rem;
+}
+
+.fm-customfunction-header h2 {
+  margin: 0;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 1rem;
+}
+
+.fm-customfunction-params {
+  color: var(--color-text-muted);
+  font-weight: normal;
+}
+
+.fm-customfunction-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.fm-customfunction-body {
+  margin: 0;
+  padding: 0.4rem 0;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  /* pre-wrap erhält Zeilenumbrüche (\n) und mehrfache Spaces. \r → \n wird
+   * im React-Renderer normalisiert (FileMaker nutzt CR als Zeilentrenner). */
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-primary);
+}
+
+.fm-customfunction-comment {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.fm-customfunction-text {
+  /* Trägt keinen eigenen Stil — bleibt im Code-Font des Bodys */
+}
+
+/* ============================================================================
+ * Function-Token-Highlight & Popover
+ * ========================================================================== */
+
+.fm-ref--function {
+  background: rgba(0, 122, 204, 0.10);
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: help;
+  position: relative;
+}
+
+.fm-ref--function:hover {
+  border-bottom: 1px dotted currentColor;
+}
+
+.fm-function-popover {
+  position: absolute;
+  top: 1.4em;
+  left: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 320px;
+  max-width: 540px;
+  max-height: 60vh;
+  overflow-y: auto;
+  /* Vollflächiger Hintergrund — die Variablen aus ScriptViewer.css sind hier
+   * NICHT zwingend geladen, daher direkter Bezug auf das globale Theme. */
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 0.7rem 0.9rem;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  white-space: normal;
+  pointer-events: auto;
+  cursor: default;
+  text-decoration: none;
+}
+
+.fm-function-popover-header {
+  font-size: 0.95rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.fm-function-popover-return {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.fm-function-popover-signature {
+  display: block;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--color-accent);
+  white-space: pre-wrap;
+}
+
+.fm-function-popover-purpose {
+  color: var(--color-text-primary);
+}
+
+.fm-function-popover-canonical {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
+.fm-function-popover-canonical code {
+  background: var(--color-bg-surface);
+  padding: 0 0.25rem;
+  border-radius: 3px;
+}
+
+.fm-function-popover-link {
+  align-self: flex-start;
+  color: var(--color-accent);
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+
+.fm-function-popover-link:hover {
+  text-decoration: underline;
+}

@@ -1,0 +1,65 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { fetchFieldTokens } from '../api/fieldTokensApi';
+import type { FieldTokens } from '../script/calcTokens';
+
+interface UseFieldTokensResult {
+  data: FieldTokens | null;
+  loading: boolean;
+  error: string | null;
+  retry: () => void;
+}
+
+// Cache pro (uuid, lang) — Wechsel der Sprache muss frische Anreicherung holen
+const cache = new Map<string, FieldTokens>();
+
+export const useFieldTokens = (
+  uuid: string | undefined,
+  lang: string = 'de',
+): UseFieldTokensResult => {
+  const [data, setData] = useState<FieldTokens | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isFetchingRef = useRef(false);
+
+  const cacheKey = uuid ? `${uuid}::${lang}` : '';
+
+  const fetchData = useCallback(async () => {
+    if (!uuid || isFetchingRef.current) return;
+
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      setData(cached);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    isFetchingRef.current = true;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const tokens = await fetchFieldTokens(uuid, lang);
+      cache.set(cacheKey, tokens);
+      setData(tokens);
+    } catch (err) {
+      console.error('Field-Token-Fetch fehlgeschlagen:', err);
+      setError(err instanceof Error ? err.message : 'Fehler beim Laden der Field-Details');
+    } finally {
+      isFetchingRef.current = false;
+      setLoading(false);
+    }
+  }, [uuid, lang, cacheKey]);
+
+  useEffect(() => {
+    if (uuid) {
+      fetchData();
+    } else {
+      setData(null);
+      setLoading(false);
+      setError(null);
+    }
+  }, [fetchData, uuid]);
+
+  return { data, loading, error, retry: fetchData };
+};

@@ -149,12 +149,14 @@ UNION ALL
 
 -- (4) PluginFunction-Refs (extern, kein Heimat-File, kein crossFile)
 -- sub_function: bei MBS-Container-Plugin der fachliche Funktionsname (PRD §3.5).
+-- uuid: synthetische ObjectCatalog-UUID für Cross-Navigation
+-- (PRD prd_pseudo_object_types_filter.md §5, deterministisch via md5).
 SELECT
   CAST(xcr.Source_Subkey AS INTEGER) AS line_index,
   3 AS source_priority,
   'pluginFunction' AS type,
   xcr.Ref_Name AS name,
-  CAST(NULL AS VARCHAR) AS uuid,
+  md5('PluginFunction::' || xcr.Ref_Name || '::' || COALESCE(xcr.Ref_SubName, '')) AS uuid,
   CAST(NULL AS VARCHAR) AS field_file,
   CAST(NULL AS VARCHAR) AS field_basetable,
   CAST(NULL AS VARCHAR) AS to_name,
@@ -192,5 +194,46 @@ WHERE xcr.Source_UUID  = getvariable('uuid')
   AND xcr.Source_Type  = 'Script'
   AND xcr.Ref_Type     = 'variable'
   AND xcr.Source_Subkey IS NOT NULL
+
+UNION ALL
+
+-- (6) Engine-Funktion-Refs aus DDR_Calculations (Chunks vom Typ FunctionRef).
+-- Verbindung: XMLCalcReferences liefert Calc_Hash je Script-Step (Source_Subkey),
+-- DDR_Calculations enthält die FunctionRef-Chunks. Wir lesen pro Step die
+-- distinct Engine-Funktions-Namen — DISTINCT auf (step_index, name), da
+-- dieselbe Funktion mehrmals pro Step vorkommen kann.
+-- Anreicherung mit Reference-DB-Daten (function_name_lookup → functions_lang)
+-- erfolgt im Controller via referenceService.enrichFunctionTokens.
+SELECT DISTINCT
+  CAST(xcr.Source_Subkey AS INTEGER) AS line_index,
+  5 AS source_priority,
+  'function' AS type,
+  regexp_extract(dc.Chunk_Content, '<Chunk[^>]*>(.+?)</Chunk>', 1) AS name,
+  -- Synthetische ObjectCatalog-UUID für Cross-Navigation (PRD pseudo_object_types §5).
+  -- Get-Sub-Parameter werden im aktuellen Token-Modell als nackter 'Get'-Token gerendert;
+  -- der bare 'Get'-ObjectCatalog-Eintrag existiert mit dieser UUID-Form.
+  md5('BuiltinFunction::' || regexp_extract(dc.Chunk_Content, '<Chunk[^>]*>(.+?)</Chunk>', 1)) AS uuid,
+  CAST(NULL AS VARCHAR) AS field_file,
+  CAST(NULL AS VARCHAR) AS field_basetable,
+  CAST(NULL AS VARCHAR) AS to_name,
+  FALSE AS cross_file,
+  CAST(NULL AS VARCHAR) AS data_source,
+  CAST(NULL AS VARCHAR) AS variable_scope,
+  CAST(NULL AS VARCHAR) AS variable_usage,
+  CAST(NULL AS VARCHAR) AS sub_function
+FROM XMLCalcReferences xcr
+JOIN DDR_Calculations dc
+  ON dc.Calc_Hash = xcr.Calc_Hash
+ AND dc.File_Name = xcr.File_Name
+WHERE xcr.Source_UUID  = getvariable('uuid')
+  AND xcr.Source_Type  = 'Script'
+  AND xcr.Source_Subkey IS NOT NULL
+  AND dc.Chunk_Type    = 'FunctionRef'
+  -- Boolean-Operatoren sind in der DDR als FunctionRef gelistet, sind aber
+  -- keine FileMaker-Funktionen (kein Reference-DB-Eintrag, kein Hilfe-Link).
+  -- Wir filtern sie hier raus, damit das Frontend keine Popover-losen
+  -- function-Refs anzeigen muss. `xor`/`not` defensiv mit drin.
+  AND regexp_extract(dc.Chunk_Content, '<Chunk[^>]*>(.+?)</Chunk>', 1)
+        NOT IN ('and', 'or', 'not', 'xor')
 
 ORDER BY line_index, source_priority, type, name, sub_function NULLS FIRST;

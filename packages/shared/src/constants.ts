@@ -35,9 +35,23 @@ export const OBJECT_TYPES = [
   'ScriptFolder',
   'LayoutFolder',
   'RelationshipGraph',
+  'BuiltinFunction',
+  'PluginFunction',
+  'ScriptStepType',
+  'PluginComponent',
 ] as const;
 
 export type ObjectType = typeof OBJECT_TYPES[number];
+
+/**
+ * Pseudo-Token-Types — synthetische Aggregat-Einträge mit Inline-Filter-
+ * Unterstützung (Categories, Usage, Sort). Vgl. PRD prd_pseudo_object_types_filter.md §1.3.
+ *
+ * PluginComponent ist bewusst NICHT enthalten — es ist selbst die Category-Ebene
+ * und unterstützt nur ?with_usage / ?sort, kein ?with_category / ?category.
+ */
+export const PSEUDO_TOKEN_TYPES = ['ScriptStepType', 'BuiltinFunction', 'PluginFunction'] as const;
+export type PseudoTokenType = typeof PSEUDO_TOKEN_TYPES[number];
 
 /**
  * Mapping from lowercase type to PascalCase (for database queries)
@@ -67,6 +81,33 @@ export const OBJECT_TYPE_MAP: Record<string, ObjectType> = {
   'scriptfolder': 'ScriptFolder',
   'layoutfolder': 'LayoutFolder',
   'relationshipgraph': 'RelationshipGraph',
+  'builtinfunction': 'BuiltinFunction',
+  'pluginfunction': 'PluginFunction',
+  'scriptsteptype': 'ScriptStepType',
+  'plugincomponent': 'PluginComponent',
+};
+
+/**
+ * Deutsche Anzeige-Labels für Pseudo-Typen (Filter-Menü).
+ * Andere Typen behalten ihren PascalCase-Namen.
+ * PRD §8.1.
+ */
+export const OBJECT_TYPE_LABELS_DE: Partial<Record<ObjectType, string>> = {
+  ScriptStepType:  'Script-Schritte',
+  BuiltinFunction: 'Funktionen',
+  PluginComponent: 'MBS-Komponenten',
+  PluginFunction:  'MBS-Funktionen',
+};
+
+/**
+ * Welcher Begriff wird in der Inline-Filter-Toolbar als Kategorie-Header
+ * angezeigt — bei PluginFunctions sprechen wir von "Komponente" (MBS-Konvention),
+ * sonst von "Kategorie". PRD §8.1.
+ */
+export const CATEGORY_LABEL_DE: Record<PseudoTokenType, string> = {
+  ScriptStepType:  'Kategorie',
+  BuiltinFunction: 'Kategorie',
+  PluginFunction:  'Komponente',
 };
 
 /**

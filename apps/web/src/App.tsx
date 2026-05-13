@@ -1,9 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Routes, Route, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { api } from './api/client';
-import { OBJECT_TYPES } from '@packages/shared/constants';
+import { OBJECT_TYPES, OBJECT_TYPE_LABELS_DE } from '@packages/shared/constants';
+
+// PRD prd_pseudo_object_types_filter.md §8.1 — vier Pseudo-Typen für
+// die Sektion "Verwendete Tokens" im Type-Dropdown.
+const PSEUDO_TYPE_GROUP = ['ScriptStepType', 'BuiltinFunction', 'PluginComponent', 'PluginFunction'] as const;
+const PSEUDO_TYPE_SET = new Set<string>(PSEUDO_TYPE_GROUP);
 import { useInfiniteSearch, useDebounce, useScrollRestore } from './hooks';
-import { VirtualList, DetailView, SearchOptions, FolderTree, type FolderTreeSubtype } from './components';
+import { VirtualList, DetailView, SearchOptions, FolderTree, ThemeToggle, PseudoTokenView, type FolderTreeSubtype } from './components';
 import { SettingsView } from './views/SettingsView';
 import { RelationshipGraphView } from './views/RelationshipGraphView';
 import { LayoutView } from './views/LayoutView';
@@ -220,12 +225,15 @@ function SearchView() {
     <div className="app">
       <div className="app-title-row">
         <h1>FileMaker Object Browser</h1>
-        <Link to="/settings" className="app-settings-link" aria-label="Plugin-Einstellungen" title="Plugin-Einstellungen">
+        <div className="app-title-actions">
+          <ThemeToggle />
+          <Link to="/settings" className="app-settings-link" aria-label="Plugin-Einstellungen" title="Plugin-Einstellungen">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </Link>
+        </div>
       </div>
 
       <nav className="app-mode-tabs" role="tablist" aria-label="Ansichts-Modus">
@@ -310,11 +318,18 @@ function SearchView() {
                 onChange={(e) => setObjectType(e.target.value)}
               >
                 <option value="">Alle Typen</option>
-                {OBJECT_TYPES.map((type) => (
+                {OBJECT_TYPES.filter(t => !PSEUDO_TYPE_SET.has(t)).map((type) => (
                   <option key={type} value={type}>
                     {type}
                   </option>
                 ))}
+                <optgroup label="Verwendete Tokens">
+                  {PSEUDO_TYPE_GROUP.map((type) => (
+                    <option key={type} value={type}>
+                      {OBJECT_TYPE_LABELS_DE[type] ?? type}
+                    </option>
+                  ))}
+                </optgroup>
               </select>
             </div>
           )}
@@ -370,8 +385,19 @@ function SearchView() {
         </div>
       )}
 
-      {/* Search mode: Virtual list */}
-      {!isTreeMode && !error && objectType !== 'RelationshipGraph' && (
+      {/* Search mode: Pseudo-Token-Typen — eigene aggregierte Ansicht (PRD §8) */}
+      {!isTreeMode && PSEUDO_TYPE_SET.has(objectType) && (
+        <PseudoTokenView
+          objectType={objectType}
+          file={selectedFile || undefined}
+          onItemClick={handleItemClick}
+          initialCategory={searchParams.get('category') || undefined}
+          initialSort={(searchParams.get('sort') as 'usage' | 'name' | 'category') || undefined}
+        />
+      )}
+
+      {/* Search mode: Virtual list (Standard-Typen) */}
+      {!isTreeMode && !error && objectType !== 'RelationshipGraph' && !PSEUDO_TYPE_SET.has(objectType) && (
         <VirtualList
           rows={processedRows}
           itemCount={items.length}
@@ -385,8 +411,8 @@ function SearchView() {
         />
       )}
 
-      {/* Search mode: Initial loading state */}
-      {!isTreeMode && objectType !== 'RelationshipGraph' && loading && items.length === 0 && (
+      {/* Search mode: Initial loading state (nicht für Pseudo-Typen — eigener Loader) */}
+      {!isTreeMode && objectType !== 'RelationshipGraph' && !PSEUDO_TYPE_SET.has(objectType) && loading && items.length === 0 && (
         <div className="virtual-list-empty">
           Lade Objekte...
         </div>

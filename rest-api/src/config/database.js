@@ -1,10 +1,12 @@
 const { DuckDBInstance } = require('@duckdb/node-api');
+const fs = require('fs');
 const path = require('path');
 const environment = require('./environment');
 
 let instance   = null;
 let connection = null;
 let reloading  = false;
+let referenceAttached = false;
 
 async function initialize() {
   if (connection) {
@@ -26,7 +28,30 @@ async function initialize() {
   console.log(`  - Max Memory: ${environment.duckdb.maxMemory}`);
   console.log(`  - Threads: ${environment.duckdb.threads}`);
 
+  await attachReferenceDb();
+
   return connection;
+}
+
+async function attachReferenceDb() {
+  referenceAttached = false;
+  const refPath = path.resolve(__dirname, '../../', environment.reference.duckdbPath);
+  if (!fs.existsSync(refPath)) {
+    console.warn(`Reference-DB not found at ${refPath} — /api/reference endpoints will return 503.`);
+    return false;
+  }
+  // ATTACH erlaubt READ_ONLY-Modus selbst auf einer READ_ONLY-Hauptverbindung
+  // (siehe PRD §9 Risiko 1, getestet mit DuckDB 1.5.x).
+  const escaped = refPath.replace(/'/g, "''");
+  const stmt = await connection.prepare(`ATTACH '${escaped}' AS ref (READ_ONLY)`);
+  await stmt.run();
+  referenceAttached = true;
+  console.log(`Reference-DB attached as 'ref' from: ${refPath}`);
+  return true;
+}
+
+function isReferenceAttached() {
+  return referenceAttached;
 }
 
 async function reload() {
@@ -106,6 +131,7 @@ async function close() {
   } finally {
     instance   = null;
     connection = null;
+    referenceAttached = false;
   }
 }
 
@@ -148,4 +174,5 @@ module.exports = {
   close,
   reload,
   getDatabaseStats,
+  isReferenceAttached,
 };

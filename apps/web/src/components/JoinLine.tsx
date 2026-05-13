@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import type { Relationship, TableOccurrence } from '../hooks/useRelationshipGraph';
 import { anchorX, fieldAnchorY, pickAnchorSide } from './relationshipGraphLayout';
+import { useGraphPalette, type GraphPalette } from './relationshipGraphTheme';
 
 type Props = {
   relationship: Relationship;
@@ -11,18 +12,14 @@ type Props = {
   isDimmed?: boolean;
 };
 
-const DIM_STROKE = '#cccccc';
-const DIM_TEXT = '#999';
-const DIM_CASCADE_CREATE = '#a8c7a8';
-const DIM_CASCADE_DELETE = '#d4a8a8';
-
-function CascadeMarker({ x, y, deltaX, cascadeCreate, cascadeDelete, dimmed }: {
+function CascadeMarker({ x, y, deltaX, cascadeCreate, cascadeDelete, dimmed, palette }: {
   x: number;
   y: number;
   deltaX: number;
   cascadeCreate: boolean;
   cascadeDelete: boolean;
   dimmed: boolean;
+  palette: GraphPalette;
 }) {
   if (!cascadeCreate && !cascadeDelete) return null;
   const mx = x + deltaX;
@@ -34,7 +31,7 @@ function CascadeMarker({ x, y, deltaX, cascadeCreate, cascadeDelete, dimmed }: {
           y={y - 3}
           fontSize={11}
           fontWeight="bold"
-          fill={dimmed ? DIM_CASCADE_CREATE : '#0a7a0a'}
+          fill={dimmed ? palette.cascadeCreateDim : palette.cascadeCreate}
           textAnchor="middle"
         >+</text>
       )}
@@ -43,7 +40,7 @@ function CascadeMarker({ x, y, deltaX, cascadeCreate, cascadeDelete, dimmed }: {
           x={mx}
           y={y + 9}
           fontSize={11}
-          fill={dimmed ? DIM_CASCADE_DELETE : '#a30000'}
+          fill={dimmed ? palette.cascadeDeleteDim : palette.cascadeDelete}
           textAnchor="middle"
         >⌫</text>
       )}
@@ -59,6 +56,7 @@ export const JoinLine = memo(function JoinLine({
   predicateCount,
   isDimmed = false,
 }: Props) {
+  const palette = useGraphPalette();
   const pred = relationship.predicates[predicateIndex];
   if (!pred) return null;
 
@@ -80,9 +78,9 @@ export const JoinLine = memo(function JoinLine({
   const lDelta = leftSide === 'right' ? 8 : -8;
   const rDelta = rightSide === 'right' ? 8 : -8;
 
-  const lineStroke = isDimmed ? DIM_STROKE : '#444';
-  const operatorBoxStroke = isDimmed ? DIM_STROKE : '#444';
-  const operatorTextFill = isDimmed ? DIM_TEXT : '#222';
+  const lineStroke = isDimmed ? palette.joinDimStroke : palette.joinStroke;
+  const operatorBoxStroke = isDimmed ? palette.joinDimStroke : palette.joinStroke;
+  const operatorTextFill = isDimmed ? palette.joinDimText : palette.joinOperatorText;
 
   return (
     <g className="join-line">
@@ -94,13 +92,13 @@ export const JoinLine = memo(function JoinLine({
         stroke={lineStroke}
         strokeWidth={1}
       />
-      {/* Operator-Symbol mittig, weiß hinterlegt zum Lesen */}
+      {/* Operator-Symbol mittig, hinterlegt zum Lesen */}
       <rect
         x={midX - 9}
         y={midY - 8}
         width={18}
         height={14}
-        fill="#ffffff"
+        fill={palette.joinOperatorBg}
         stroke={operatorBoxStroke}
         strokeWidth={0.5}
         rx={2}
@@ -123,6 +121,7 @@ export const JoinLine = memo(function JoinLine({
         cascadeCreate={relationship.left.cascadeCreate}
         cascadeDelete={relationship.left.cascadeDelete}
         dimmed={isDimmed}
+        palette={palette}
       />
       <CascadeMarker
         x={rx}
@@ -131,6 +130,7 @@ export const JoinLine = memo(function JoinLine({
         cascadeCreate={relationship.right.cascadeCreate}
         cascadeDelete={relationship.right.cascadeDelete}
         dimmed={isDimmed}
+        palette={palette}
       />
     </g>
   );

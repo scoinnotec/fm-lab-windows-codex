@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useLayoutData } from '../hooks/useLayoutData';
 import { LayoutCanvas, type LayoutCanvasHandle } from '../components/LayoutCanvas';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { useEscapeStack } from '../hooks/useEscapeStack';
 import './LayoutView.css';
 
@@ -75,6 +76,7 @@ export function LayoutView() {
           )}
         </h1>
         {data && <div className="layout-view-file">{data.fileName}</div>}
+        <ThemeToggle />
       </header>
 
       <div className="layout-view-body">

@@ -420,7 +420,9 @@ EOF
     echo "========================================="
 
     CATALOG_TEMP_LOG=$(mktemp)
-    if "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_universal_catalogs.sql" > "$CATALOG_TEMP_LOG" 2>&1; then
+    # CWD = PROJECT_ROOT, damit relative Pfade wie 'data/mbs_component_exceptions.csv'
+    # in create_universal_catalogs.sql (PluginComponent-INSERTs) auflösbar sind.
+    if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_universal_catalogs.sql") > "$CATALOG_TEMP_LOG" 2>&1; then
         echo "✓ Universal catalogs created successfully"
     else
         echo "✗ WARNING: Universal catalogs failed"

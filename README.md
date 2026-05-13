@@ -19,6 +19,7 @@ The first release focuses on this core: reliable XML conversion, a comprehensive
 
 - **XML Ingestion pipeline** — for FileMaker XML exports into DuckDB based on a flexible SQL template system, designed for easy maintenance and updates as FileMaker evolves ♻️
 - **Detailed Object Catalog** — 30 tables covering all FileMaker object types, with a universal catalog linking objects and their dependencies for fast cross-reference queries 🔗
+- **Detailed Reference Catalog** — localized tables for all FileMaker ScriptSteps and Functions, providing reference queries and inline help-docs across up to 11 locales 📄
 - **DuckDB Backend** — In-process analytical database engine for fast and flexible queries without server setup, delivers results in milliseconds even for large solutions 🚀
 - **REST API** — Express server providing HTTP access to the analysis database, enabling integration with external tools and services 🧩
 - **Web Client** — React/Vite frontend for interactive exploration of the solution's structure and dependencies with rich visualizations 🔎
@@ -142,7 +143,7 @@ Test data and tools for fm-lab developers are available for validation (will be 
 
 Some rough edges, but the core architecture is in place and ready for real-world use and feedback. Future updates will focus on stability, UI optimizations, and expanding the feature set.
 
-**v0.6.2** to **v0.6.6** — Optimizations for XML-Parser, REST-API and web client.
+**v0.6.2** to **v0.6.7** — Optimizations for XML-Parser, REST-API and web client.
 
 Further improvements to the foundation of the project to lay the groundwork for upcoming features. Web client now supports more detailed exploration of the object catalog and dependencies.
 

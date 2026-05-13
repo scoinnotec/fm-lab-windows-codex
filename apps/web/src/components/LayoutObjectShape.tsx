@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import type { LayoutObject } from '../hooks/useLayoutData';
+import { useLayoutObjectPalette, type LayoutObjectPalette } from './layoutObjectTheme';
 
 export type LayoutObjectDisplayMode = 'normal' | 'highlight' | 'dim';
 export type LabelMode = 'type' | 'name';
@@ -14,81 +15,12 @@ type Props = {
   onClick: (object: LayoutObject) => void;
 };
 
-// Farben aus display_layout_svg.sql v2 übernommen — gleiche Kategorisierung
-const FILL: Record<string, string> = {
-  'Edit Box': '#cce5ff',
-  'Drop-down List': '#cce5ff',
-  'Pop-up Menu': '#cce5ff',
-  'Radio Button Set': '#cce5ff',
-  'Checkbox Set': '#cce5ff',
-  'Drop-down Calendar': '#cce5ff',
-  'Concealed Edit Box': '#cce5ff',
-  'Text': '#e2e3e5',
-  'Graphic': '#e2e3e5',
-  'Container': '#e2e3e5',
-  'Web Viewer': '#e2e3e5',
-  'Button': '#d4edda',
-  'Grouped Button': '#d4edda',
-  'Button Bar': '#d4edda',
-  'Popover Button': '#d4edda',
-  'Portal': '#fff3cd',
-  'Group': '#fff3cd',
-  'Tab Control': '#fff3cd',
-  'Panel': '#fff3cd',
-  'Slide Control': '#fff3cd',
-  'PopoverPanel': '#fff3cd',
-  'Rectangle': '#f8d7da',
-  'Rounded Rectangle': '#f8d7da',
-  'Line': '#f8d7da',
-  'Oval': '#f8d7da',
-};
-
-const STROKE: Record<string, string> = {
-  'Edit Box': '#004085',
-  'Drop-down List': '#004085',
-  'Pop-up Menu': '#004085',
-  'Radio Button Set': '#004085',
-  'Checkbox Set': '#004085',
-  'Drop-down Calendar': '#004085',
-  'Concealed Edit Box': '#004085',
-  'Text': '#383d41',
-  'Graphic': '#383d41',
-  'Container': '#383d41',
-  'Web Viewer': '#383d41',
-  'Button': '#155724',
-  'Grouped Button': '#155724',
-  'Button Bar': '#155724',
-  'Popover Button': '#155724',
-  'Portal': '#856404',
-  'Group': '#856404',
-  'Tab Control': '#856404',
-  'Panel': '#856404',
-  'Slide Control': '#856404',
-  'PopoverPanel': '#856404',
-  'Rectangle': '#721c24',
-  'Rounded Rectangle': '#721c24',
-  'Line': '#721c24',
-  'Oval': '#721c24',
-};
-
 const CONTAINER_TYPES = new Set([
   'Portal', 'Group', 'Tab Control', 'Panel', 'Slide Control', 'PopoverPanel',
 ]);
 
-const DIMMED_FILL = '#f0f0f0';
-const DIMMED_STROKE = '#cccccc';
-const DIMMED_TEXT = '#999999';
-const NORMAL_TEXT = '#333333';
-
-const HIGHLIGHT_RING_COLOR = '#fb923c';
 const HIGHLIGHT_RING_WIDTH = 4;
-
-export function fillFor(type: string): string {
-  return FILL[type] ?? '#f0f0f0';
-}
-export function strokeFor(type: string): string {
-  return STROKE[type] ?? '#666666';
-}
+const SELECTED_RING_WIDTH = 6;
 
 function escapeText(s: string): string {
   // SVG-text Inhalt darf <,> nicht enthalten — React entkommt automatisch.
@@ -124,6 +56,7 @@ export const LayoutObjectShape = memo(function LayoutObjectShape({
   onMouseLeave,
   onClick,
 }: Props) {
+  const palette = useLayoutObjectPalette();
   const x = object.abs_left;
   const y = object.abs_top;
   const width = Math.max(object.abs_right - object.abs_left, 1);
@@ -131,9 +64,9 @@ export const LayoutObjectShape = memo(function LayoutObjectShape({
 
   const dimmed = displayMode === 'dim';
 
-  const fill = dimmed ? DIMMED_FILL : fillFor(object.object_type);
-  const stroke = dimmed ? DIMMED_STROKE : strokeFor(object.object_type);
-  const labelColor = dimmed ? DIMMED_TEXT : NORMAL_TEXT;
+  const fill = dimmed ? palette.dimmedFill : palette.fillFor(object.object_type);
+  const stroke = dimmed ? palette.dimmedStroke : palette.strokeFor(object.object_type);
+  const labelColor = dimmed ? palette.dimmedText : palette.normalText;
   const isContainer = CONTAINER_TYPES.has(object.object_type);
 
   const label = escapeText(buildLabel(object, labelMode));
@@ -178,15 +111,13 @@ export const LayoutObjectShape = memo(function LayoutObjectShape({
   );
 });
 
-const SELECTED_RING_COLOR = '#dc2626';
-const SELECTED_RING_WIDTH = 6;
-
 /**
  * Highlight-Ring (orange) als globales SVG-Overlay — wird wie der SelectionRing *nach*
  * allen Objekten gerendert, damit er auch dann sichtbar bleibt, wenn das Treffer-Objekt
  * von späteren Container-Children visuell überlagert wird.
  */
 export const HighlightRing = memo(function HighlightRing({ object }: { object: LayoutObject }) {
+  const palette = useLayoutObjectPalette();
   const x = object.abs_left;
   const y = object.abs_top;
   const width = Math.max(object.abs_right - object.abs_left, 1);
@@ -199,7 +130,7 @@ export const HighlightRing = memo(function HighlightRing({ object }: { object: L
       width={width + HIGHLIGHT_RING_WIDTH}
       height={height + HIGHLIGHT_RING_WIDTH}
       fill="none"
-      stroke={HIGHLIGHT_RING_COLOR}
+      stroke={palette.highlightRing}
       strokeWidth={HIGHLIGHT_RING_WIDTH}
       rx={4}
       ry={4}
@@ -213,6 +144,7 @@ export const HighlightRing = memo(function HighlightRing({ object }: { object: L
  * sodass er auch über tief verschachtelten Tab-Panels sichtbar bleibt (PRD F16).
  */
 export const SelectionRing = memo(function SelectionRing({ object }: { object: LayoutObject }) {
+  const palette = useLayoutObjectPalette();
   const x = object.abs_left;
   const y = object.abs_top;
   const width = Math.max(object.abs_right - object.abs_left, 1);
@@ -225,7 +157,7 @@ export const SelectionRing = memo(function SelectionRing({ object }: { object: L
       width={width + SELECTED_RING_WIDTH}
       height={height + SELECTED_RING_WIDTH}
       fill="none"
-      stroke={SELECTED_RING_COLOR}
+      stroke={palette.selectionRing}
       strokeWidth={SELECTED_RING_WIDTH}
       rx={6}
       ry={6}
@@ -233,3 +165,7 @@ export const SelectionRing = memo(function SelectionRing({ object }: { object: L
     />
   );
 });
+
+// Re-export für Konsumenten, die die Palette außerhalb dieses Files brauchen
+export { useLayoutObjectPalette };
+export type { LayoutObjectPalette };

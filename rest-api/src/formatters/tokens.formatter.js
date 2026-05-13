@@ -10,7 +10,15 @@
  * The caller decides which shape via options.kind.
  */
 
+const crypto = require('crypto');
 const { isContainerPlugin } = require('../services/plugin-token-registry');
+
+// Deterministischer md5-Hash zur Erzeugung synthetischer ObjectCatalog-UUIDs
+// (PRD prd_pseudo_object_types_filter.md §5). Hex-output, kleinbuchstaben —
+// identisch zur DuckDB-md5() Konvention im create_universal_catalogs.sql.
+function md5(s) {
+  return crypto.createHash('md5').update(s).digest('hex');
+}
 
 const CHUNK_TYPE_MAP = {
   NoRef: 'text',
@@ -111,6 +119,21 @@ function tokenFromChunk(chunk, idx, allChunks) {
   if (apiType === 'pluginFunction' && isContainerPlugin(content) && Array.isArray(allChunks)) {
     const sub = extractSubFunctionFromNeighbors(idx, allChunks);
     if (sub) tok.subFunction = sub;
+  }
+
+  // Synthetische ObjectCatalog-UUIDs für Cross-Navigation
+  // (PRD prd_pseudo_object_types_filter.md §5).
+  // BuiltinFunction: deterministisch via md5('BuiltinFunction::' + name).
+  //                  Boolean-Operatoren (and/or/not/xor) haben keinen Catalog-
+  //                  Eintrag — wir setzen die UUID trotzdem; das Frontend filtert
+  //                  Tot-Links per Link-Validierung gegen das ObjectCatalog
+  //                  (Routing zur Detail-Seite würde sonst 404 liefern).
+  //                  Pragmatisch: bei diesen vier bleiben wir uuidlos.
+  if (apiType === 'function' && !['and', 'or', 'not', 'xor'].includes(content)) {
+    tok.uuid = md5(`BuiltinFunction::${content}`);
+  }
+  if (apiType === 'pluginFunction') {
+    tok.uuid = md5(`PluginFunction::${content}::${tok.subFunction || ''}`);
   }
 
   return tok;
@@ -215,6 +238,8 @@ function formatScript(rows, { object, refs }) {
       ...base,
       stepId: row.step_id,
       stepName: row.step_name,
+      stepUuid: row.step_uuid,
+      stepTypeUuid: row.step_type_uuid,
       text: row.step_text || row.step_name,
       ...(lineRefs && lineRefs.length ? { refs: lineRefs } : {}),
     };
@@ -272,6 +297,53 @@ function formatCustomFunction(rows, { object }) {
   };
 }
 
+function formatField(rows, { object }) {
+  if (!rows || rows.length === 0) {
+    return {
+      kind: 'field',
+      object,
+      field: null,
+      tokens: [],
+      plainText: '',
+    };
+  }
+
+  const head = rows[0];
+  const enrichedObject = {
+    ...object,
+    uuid: head.object_uuid || object.uuid,
+    name: head.object_name || object.name,
+    file: head.object_file || object.file,
+  };
+
+  const fieldMeta = {
+    table:           head.table_name ?? null,
+    fieldType:       head.field_type ?? null,
+    dataType:        head.data_type ?? null,
+    isGlobal:        head.is_global === true || head.is_global === 'True',
+    maxRepetitions:  head.max_repetitions != null ? Number(head.max_repetitions) : 1,
+    comment:         head.field_comment ?? null,
+    autoEnterType:   head.auto_enter_type ?? null,
+  };
+
+  const chunkRows = rows
+    .filter(r => r.chunk_index !== null && r.chunk_index !== undefined)
+    .map(r => ({ chunk_type: r.chunk_type, chunk_content: r.chunk_content }));
+  const tokens = chunkRows.map((c, i, arr) => tokenFromChunk(c, i, arr));
+
+  const plainText = head.plain_text != null
+    ? head.plain_text
+    : tokens.map(t => t.content).join('');
+
+  return {
+    kind: 'field',
+    object: enrichedObject,
+    field: fieldMeta,
+    tokens,
+    plainText,
+  };
+}
+
 function formatCalculation(rows, { object }) {
   const chunkRows = (rows || []).map(r => ({
     chunk_type: r.chunk_type,
@@ -305,6 +377,8 @@ function format(data, options = {}) {
       return formatScript(data || [], { object, refs });
     case 'customfunction':
       return formatCustomFunction(data || [], { object });
+    case 'field':
+      return formatField(data || [], { object });
     case 'calculation':
       return formatCalculation(data || [], { object });
     default:

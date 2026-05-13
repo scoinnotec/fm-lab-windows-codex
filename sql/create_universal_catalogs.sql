@@ -1199,7 +1199,128 @@ SELECT
     Source_Table,
     NULL as Object_ID
 FROM FolderHierarchy
-WHERE subtype = 'Folder';
+WHERE subtype = 'Folder'
+
+UNION ALL
+
+-- 25. BuiltinFunction (synthetisch)
+-- PRD prd_universal_function_links.md §5: ein Eintrag pro distinct FunctionRef-Token
+-- aus XMLCalcReferences (Ref_Type='function'). Built-ins sind lösungs-unabhängig
+-- → File_Name = NULL. Bei Get(<SubParameter>) erzeugt jeder SubParameter einen
+-- eigenen Eintrag (Object_Name = 'Get(<SubParameter>)'); zusätzlich existiert der
+-- nackte 'Get'-Eintrag (Ref_SubName IS NULL).
+-- Lokalisierte Token-Schreibweisen erzeugen mehrere Einträge mit unterschiedlicher
+-- Object_UUID (Reference-DB-Anreicherung mappt sie zur Query-Zeit auf canonical_name).
+SELECT DISTINCT
+    md5('BuiltinFunction::' ||
+        CASE WHEN Ref_Name = 'Get' AND Ref_SubName IS NOT NULL
+             THEN Ref_Name || '::' || Ref_SubName
+             ELSE Ref_Name END
+    ) as Object_UUID,
+    'BuiltinFunction' as Object_Type,
+    CASE WHEN Ref_Name = 'Get' AND Ref_SubName IS NOT NULL
+         THEN 'Get(' || Ref_SubName || ')'
+         ELSE Ref_Name END as Object_Name,
+    NULL as File_Name,
+    'DDR_Calculations' as Source_Table,
+    NULL as Object_ID
+FROM XMLCalcReferences
+WHERE Ref_Type = 'function'
+  AND Ref_Name IS NOT NULL
+  AND Ref_Name != ''
+
+UNION ALL
+
+-- 26. PluginFunction (synthetisch)
+-- PRD prd_universal_function_links.md §6: ein Eintrag pro (Plugin_Function_Name, SubName).
+-- Container-Plugins (heute: MBS) erzeugen pro SubName einen Eintrag; Non-Container-Plugins
+-- einen Eintrag pro registriertem Calc-Token.
+-- Object_Name folgt der Konvention 'Plugin::SubName' für Container-Plugins,
+-- 'Plugin' für Non-Container-Plugins (siehe PRD §6.4).
+-- Dynamische MBS-Aufrufe (SubName IS NULL) werden ausgefiltert.
+SELECT DISTINCT
+    md5('PluginFunction::' || pfu.Plugin_Function_Name || '::' ||
+        COALESCE(msm.SubName, '')) as Object_UUID,
+    'PluginFunction' as Object_Type,
+    CASE WHEN msm.SubName IS NOT NULL
+         THEN pfu.Plugin_Function_Name || '::' || msm.SubName
+         ELSE pfu.Plugin_Function_Name END as Object_Name,
+    NULL as File_Name,
+    'PluginFunctionUsages' as Source_Table,
+    NULL as Object_ID
+FROM PluginFunctionUsages pfu
+LEFT JOIN MBS_SubnameMap msm
+  ON msm.Calc_UUID = pfu.Calc_UUID
+ AND msm.File_Name = pfu.File_Name
+ AND msm.Plugin_Chunk_Index = pfu.Plugin_Chunk_Index
+WHERE pfu.Plugin_Function_Name IS NOT NULL
+  AND pfu.Plugin_Function_Name != ''
+  AND (msm.SubName IS NOT NULL OR pfu.Plugin_Function_Name != 'MBS')
+
+UNION ALL
+
+-- 27. ScriptStepType (synthetisch, Token-Aggregat)
+-- PRD prd_pseudo_object_types_filter.md §6.1: ein Eintrag pro distinct Step_Name
+-- aus StepsForScripts. ScriptStepTypes sind lösungs-unabhängig → File_Name = NULL.
+-- Die Verwendungs-Anzahl wird im Detail-Template direkt aus StepsForScripts aggregiert
+-- (keine zusätzlichen ObjectLinks — vgl. PRD §6.4 / §4 Begründung).
+SELECT DISTINCT
+    md5('ScriptStepType::' || Step_Name) as Object_UUID,
+    'ScriptStepType' as Object_Type,
+    Step_Name as Object_Name,
+    NULL as File_Name,
+    'StepsForScripts' as Source_Table,
+    NULL as Object_ID
+FROM StepsForScripts
+WHERE Step_Name IS NOT NULL
+  AND Step_Name != '';
+
+-- ========================================
+-- PluginComponent (synthetisch, Category-Aggregat)
+-- ========================================
+-- PRD prd_pseudo_object_types_filter.md §6.2: Komponenten-Mapping aus
+--   1) data/mbs_component_exceptions.csv (autoritativ, ~1.021 Mappings)
+--   2) Default-Heuristik split_part(SubName, '.', 1)
+-- Object_Name folgt der Konvention 'MBS::<Component>' (z.B. 'MBS::XL').
+-- Wird als separater INSERT nach dem CREATE eingefügt, weil die Auflösung
+-- auf die bereits existierenden PluginFunction-Einträge des ObjectCatalog
+-- zugreift (CSV-Lookup gegen 'MBS::SubName'-Object_Name).
+-- File_Name = NULL (lösungs-unabhängig, vgl. PRD §5).
+--
+-- Voraussetzung: convert_fm_xml.sh führt den DuckDB-Lauf im Repo-Root aus,
+-- sodass der relative CSV-Pfad auflösbar ist (cd in convert_fm_xml.sh).
+-- Falls die CSV nicht existiert, greift die Default-Heuristik (read_csv-Fehler
+-- müsste durch existierende CSV vermieden werden).
+INSERT INTO ObjectCatalog (Object_UUID, Object_Type, Object_Name, File_Name, Source_Table, Object_ID)
+WITH component_map AS (
+    SELECT
+        Funktionsname AS function_name,
+        Component     AS component_name
+    FROM read_csv('data/mbs_component_exceptions.csv', header=true)
+),
+resolved AS (
+    SELECT DISTINCT
+        regexp_replace(pf.Object_Name, '^MBS::', '') AS sub_name,
+        COALESCE(
+            cm.component_name,
+            split_part(regexp_replace(pf.Object_Name, '^MBS::', ''), '.', 1)
+        ) AS component_name
+    FROM ObjectCatalog pf
+    LEFT JOIN component_map cm
+      ON cm.function_name = regexp_replace(pf.Object_Name, '^MBS::', '')
+    WHERE pf.Object_Type = 'PluginFunction'
+      AND pf.Object_Name LIKE 'MBS::%'
+)
+SELECT DISTINCT
+    md5('PluginComponent::MBS::' || component_name) as Object_UUID,
+    'PluginComponent' as Object_Type,
+    'MBS::' || component_name as Object_Name,
+    NULL as File_Name,
+    'data/mbs_component_exceptions.csv' as Source_Table,
+    NULL as Object_ID
+FROM resolved
+WHERE component_name IS NOT NULL
+  AND component_name != '';
 
 -- Indexes für ObjectCatalog
 CREATE INDEX idx_objectcatalog_type ON ObjectCatalog(Object_Type);
@@ -1470,43 +1591,57 @@ WHERE xsr.Ref_Type = 'script'
 
 UNION ALL
 
--- 16. Script → Field (Set Field Steps)
--- Extrahiert aus XMLStepReferences (Python XML-Extraktor)
+-- 16. Script → Field (alle Step-Typen mit FieldReference)
+-- Extrahiert aus XMLStepReferences (PRD prd_universal_field_refs_in_steps.md §4.3)
+-- Differenzierte Link-Rollen pro Step-Typ-Gruppe:
+--   sets_field         — Step schreibt/verändert den Feldinhalt
+--   reads_field        — Step liest aus dem Feld
+--   navigates_to_field — Step springt zum Feld (Cursor-Positionierung)
+--   finds_in_field     — Feld dient als Such-Kriterium
+--   sorts_by_field     — Feld dient als Sortier-Kriterium
+--   imports_to_field   — Feld ist Import-Ziel
+--   exports_from_field — Feld ist Export-Quelle
+--   inputs_to_field    — Feld nimmt Dialog-Eingabe entgegen
+--   references_field   — Fallback für unbekannte Step-Typen
 SELECT
     xsr.Script_UUID as Source_UUID,
     'Script' as Source_Type,
     xsr.Ref_UUID as Target_UUID,
     'Field' as Target_Type,
     'operational' as Link_Type,
-    'sets_field' as Link_Role,
+    CASE xsr.Step_Name
+        WHEN 'Set Field' THEN 'sets_field'
+        WHEN 'Replace Field Contents' THEN 'sets_field'
+        WHEN 'Insert Calculated Result' THEN 'sets_field'
+        WHEN 'Insert Text' THEN 'sets_field'
+        WHEN 'Insert File' THEN 'sets_field'
+        WHEN 'Insert from URL' THEN 'sets_field'
+        WHEN 'Paste' THEN 'sets_field'
+        WHEN 'Clear' THEN 'sets_field'
+        WHEN 'Set Selection' THEN 'sets_field'
+        WHEN 'Set Next Serial Value' THEN 'sets_field'
+        WHEN 'Relookup Field Contents' THEN 'sets_field'
+        WHEN 'Copy' THEN 'reads_field'
+        WHEN 'Export Field Contents' THEN 'reads_field'
+        WHEN 'Go to Field' THEN 'navigates_to_field'
+        WHEN 'Go to Related Record' THEN 'navigates_to_field'
+        WHEN 'Perform Find' THEN 'finds_in_field'
+        WHEN 'Constrain Found Set' THEN 'finds_in_field'
+        WHEN 'Extend Found Set' THEN 'finds_in_field'
+        WHEN 'Enter Find Mode' THEN 'finds_in_field'
+        WHEN 'Sort Records' THEN 'sorts_by_field'
+        WHEN 'Import Records' THEN 'imports_to_field'
+        WHEN 'Export Records' THEN 'exports_from_field'
+        WHEN 'Show Custom Dialog' THEN 'inputs_to_field'
+        ELSE 'references_field'
+    END as Link_Role,
     NULL as Link_Subrole,
     xsr.File_Name as Source_File,
     oc_target.File_Name as Target_File,
     (xsr.File_Name != oc_target.File_Name) as Is_Cross_File
 FROM XMLStepReferences xsr
 LEFT JOIN ObjectCatalog oc_target ON xsr.Ref_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Field'
-WHERE xsr.Step_Name = 'Set Field'
-  AND xsr.Ref_Type = 'field'
-
-UNION ALL
-
--- 17. Script → Field (Go to Field / Go to Related Record Steps)
--- Extrahiert aus XMLStepReferences (Python XML-Extraktor)
-SELECT
-    xsr.Script_UUID as Source_UUID,
-    'Script' as Source_Type,
-    xsr.Ref_UUID as Target_UUID,
-    'Field' as Target_Type,
-    'operational' as Link_Type,
-    'navigates_to_field' as Link_Role,
-    NULL as Link_Subrole,
-    xsr.File_Name as Source_File,
-    oc_target.File_Name as Target_File,
-    (xsr.File_Name != oc_target.File_Name) as Is_Cross_File
-FROM XMLStepReferences xsr
-LEFT JOIN ObjectCatalog oc_target ON xsr.Ref_UUID = oc_target.Object_UUID AND oc_target.Object_Type = 'Field'
-WHERE xsr.Step_Name IN ('Go to Field', 'Go to Related Record')
-  AND xsr.Ref_Type = 'field'
+WHERE xsr.Ref_Type = 'field'
 
 UNION ALL
 
@@ -1938,7 +2073,111 @@ JOIN ObjectCatalog oc_field
     ON xlr.Ref_UUID = oc_field.Object_UUID
    AND oc_field.Object_Type = 'Field'
 WHERE xlr.Ref_Type = 'field'
-  AND xlr.Ref_UUID IS NOT NULL;
+  AND xlr.Ref_UUID IS NOT NULL
+
+UNION ALL
+
+-- 33. Calc-Source → BuiltinFunction (calls_function)
+-- PRD prd_universal_function_links.md §5.4: Built-in FunctionRef-Aufrufe als
+-- Link-Tripel (dedupliziert). Target ist datei-unabhängig → Is_Cross_File=FALSE.
+-- Für Get(<SubParameter>) zeigt der Link auf den SubParameter-Eintrag, sonst
+-- auf den nackten Token.
+SELECT DISTINCT
+    xcr.Source_UUID as Source_UUID,
+    xcr.Source_Type as Source_Type,
+    md5('BuiltinFunction::' ||
+        CASE WHEN xcr.Ref_Name = 'Get' AND xcr.Ref_SubName IS NOT NULL
+             THEN xcr.Ref_Name || '::' || xcr.Ref_SubName
+             ELSE xcr.Ref_Name END
+    ) as Target_UUID,
+    'BuiltinFunction' as Target_Type,
+    'operational' as Link_Type,
+    'calls_function' as Link_Role,
+    xcr.Subrole as Link_Subrole,
+    xcr.File_Name as Source_File,
+    NULL as Target_File,
+    FALSE as Is_Cross_File
+FROM XMLCalcReferences xcr
+WHERE xcr.Ref_Type = 'function'
+  AND xcr.Ref_Name IS NOT NULL
+  AND xcr.Ref_Name != ''
+
+UNION ALL
+
+-- 34. Calc-Source → PluginFunction (calls_pluginfunction)
+-- PRD prd_universal_function_links.md §6.5: Plugin-Funktionsaufrufe (granular
+-- pro Plugin-Token + SubName für Container-Plugins). Source-Tupel kommt aus
+-- PluginFunctionUsages (positionsbezogen via Calc_UUID + Plugin_Chunk_Index
+-- → MBS_SubnameMap). Dynamische MBS-Aufrufe (SubName NULL) werden ausgefiltert.
+-- Target ist datei-unabhängig → Is_Cross_File=FALSE.
+SELECT DISTINCT
+    pfu.Source_UUID as Source_UUID,
+    pfu.Source_Type as Source_Type,
+    md5('PluginFunction::' || pfu.Plugin_Function_Name || '::' ||
+        COALESCE(msm.SubName, '')) as Target_UUID,
+    'PluginFunction' as Target_Type,
+    'operational' as Link_Type,
+    'calls_pluginfunction' as Link_Role,
+    pfu.Subrole as Link_Subrole,
+    pfu.File_Name as Source_File,
+    NULL as Target_File,
+    FALSE as Is_Cross_File
+FROM PluginFunctionUsages pfu
+LEFT JOIN MBS_SubnameMap msm
+  ON msm.Calc_UUID = pfu.Calc_UUID
+ AND msm.File_Name = pfu.File_Name
+ AND msm.Plugin_Chunk_Index = pfu.Plugin_Chunk_Index
+WHERE pfu.Plugin_Function_Name IS NOT NULL
+  AND pfu.Plugin_Function_Name != ''
+  AND (msm.SubName IS NOT NULL OR pfu.Plugin_Function_Name != 'MBS');
+
+-- ========================================
+-- groups_into-Links: PluginFunction → PluginComponent (structural)
+-- ========================================
+-- PRD prd_pseudo_object_types_filter.md §6.2: jede MBS-Plugin-Funktion ist
+-- über einen 'groups_into'-Link an ihre Komponente angebunden. Die Komponenten-
+-- Auflösung folgt derselben Logik wie der PluginComponent-INSERT
+-- (CSV-Override + Default-Heuristik split_part(SubName,'.',1)).
+-- Source = PluginFunction (z.B. 'MBS::XL.Book.AddFormat'),
+-- Target = PluginComponent (z.B. 'MBS::XL'). Target_File = NULL (Component
+-- ist lösungs-unabhängig), Is_Cross_File = FALSE (beide synthetisch).
+INSERT INTO ObjectLinks (Source_UUID, Source_Type, Target_UUID, Target_Type,
+                          Link_Type, Link_Role, Link_Subrole,
+                          Source_File, Target_File, Is_Cross_File)
+WITH component_map AS (
+    SELECT
+        Funktionsname AS function_name,
+        Component     AS component_name
+    FROM read_csv('data/mbs_component_exceptions.csv', header=true)
+),
+resolved AS (
+    SELECT
+        pf.Object_UUID                                AS function_uuid,
+        regexp_replace(pf.Object_Name, '^MBS::', '')  AS sub_name,
+        COALESCE(
+            cm.component_name,
+            split_part(regexp_replace(pf.Object_Name, '^MBS::', ''), '.', 1)
+        ) AS component_name
+    FROM ObjectCatalog pf
+    LEFT JOIN component_map cm
+      ON cm.function_name = regexp_replace(pf.Object_Name, '^MBS::', '')
+    WHERE pf.Object_Type = 'PluginFunction'
+      AND pf.Object_Name LIKE 'MBS::%'
+)
+SELECT DISTINCT
+    function_uuid                                          as Source_UUID,
+    'PluginFunction'                                        as Source_Type,
+    md5('PluginComponent::MBS::' || component_name)         as Target_UUID,
+    'PluginComponent'                                       as Target_Type,
+    'structural'                                            as Link_Type,
+    'groups_into'                                           as Link_Role,
+    NULL                                                    as Link_Subrole,
+    NULL                                                    as Source_File,
+    NULL                                                    as Target_File,
+    FALSE                                                   as Is_Cross_File
+FROM resolved
+WHERE component_name IS NOT NULL
+  AND component_name != '';
 
 -- Indexes für ObjectLinks
 CREATE INDEX idx_objectlinks_source ON ObjectLinks(Source_UUID);

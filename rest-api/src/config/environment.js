@@ -56,6 +56,18 @@ const environment = {
     cacheMaxPaths: parseInt(process.env.PLUGIN_DOCS_CACHE_MAX_PATHS) || 1000,
   },
 
+  // Reference-DB (Script Steps + Functions, lokalisierte Claris-Metadaten)
+  // Pfade relativ zur rest-api/. ATTACH-Alias 'ref' wird in database.js gesetzt.
+  // htmlCacheRoot zeigt auf den vom Skill `install-claris-docs` gepflegten Mirror.
+  reference: {
+    duckdbPath:    process.env.REFERENCE_DUCKDB_PATH    || './db/fm_reference.duckdb',
+    htmlCacheRoot: process.env.REFERENCE_HTML_ROOT     || '../docs/claris-help',
+    htmlSubdir:    'content',                                  // <lang>/content/<slug>.html
+    cacheTtlMs:    parseInt(process.env.REFERENCE_CACHE_TTL_MS) || 3600000,       // DB-Meta 1h
+    htmlCacheTtlMs: parseInt(process.env.REFERENCE_HTML_CACHE_TTL_MS) || 86400000, // HTML 24h
+    defaultLang:   process.env.REFERENCE_DEFAULT_LANG || 'de',
+  },
+
   // API Configuration
   api: {
     defaultLimit: parseInt(process.env.DEFAULT_LIMIT) || 100,

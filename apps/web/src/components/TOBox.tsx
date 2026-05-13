@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import type { TableOccurrence } from '../hooks/useRelationshipGraph';
 import { layoutTOBox, FIELD_ROW_HEIGHT, HEADER_HEIGHT } from './relationshipGraphLayout';
+import { useGraphPalette } from './relationshipGraphTheme';
 
 export type TOBoxDisplayMode = 'normal' | 'highlight' | 'dim';
 
@@ -11,16 +12,7 @@ type Props = {
   isSelected?: boolean;
 };
 
-const DIMMED_HEADER = '#bbbbbb';
-const DIMMED_STROKE = '#bbbbbb';
-const DIMMED_HEADER_TEXT = '#666';
-const DIMMED_FIELD_TEXT = '#999';
-const DIMMED_FIELD_BG = '#f5f5f5';
-
-const HIGHLIGHT_RING_COLOR = '#fb923c';
 const HIGHLIGHT_RING_WIDTH = 6;
-
-const SELECTED_RING_COLOR = '#dc2626';
 const SELECTED_RING_WIDTH = 12;
 
 function readableTextColor(r: number, g: number, b: number): string {
@@ -35,6 +27,7 @@ export const TOBox = memo(function TOBox({
   displayMode = 'normal',
   isSelected = false,
 }: Props) {
+  const palette = useGraphPalette();
   const layout = layoutTOBox(to);
   const { x, y, width, height } = layout;
 
@@ -42,14 +35,14 @@ export const TOBox = memo(function TOBox({
   const highlighted = displayMode === 'highlight';
 
   const headerFill = dimmed
-    ? DIMMED_HEADER
-    : (to.color ? `rgb(${to.color.r}, ${to.color.g}, ${to.color.b})` : '#777777');
+    ? palette.dimmedHeader
+    : (to.color ? `rgb(${to.color.r}, ${to.color.g}, ${to.color.b})` : palette.headerNeutral);
   const headerText = dimmed
-    ? DIMMED_HEADER_TEXT
-    : (to.color ? readableTextColor(to.color.r, to.color.g, to.color.b) : '#fff');
-  const stroke = dimmed ? DIMMED_STROKE : '#222';
-  const fieldText = dimmed ? DIMMED_FIELD_TEXT : '#222';
-  const fieldHighlightBg = dimmed ? DIMMED_FIELD_BG : '#fff7d6';
+    ? palette.dimmedHeaderText
+    : (to.color ? readableTextColor(to.color.r, to.color.g, to.color.b) : palette.headerTextDefault);
+  const stroke = dimmed ? palette.dimmedStroke : palette.boxStroke;
+  const fieldText = dimmed ? palette.dimmedFieldText : palette.fieldText;
+  const fieldHighlightBg = dimmed ? palette.dimmedFieldBg : palette.fieldHighlightBg;
   const isExternal = to.type === 'External';
 
   // Match-Ring (orange) wird hier inline mit der TO gezeichnet.
@@ -57,7 +50,7 @@ export const TOBox = memo(function TOBox({
   // *nach* allen TOs gezeichnet (siehe <SelectionRing /> im RelationshipGraph),
   // damit er auch über (halb-)verdeckte TOs hinweg sichtbar bleibt.
   const showHighlightRing = highlighted && !isSelected;
-  const ringColor = showHighlightRing ? HIGHLIGHT_RING_COLOR : null;
+  const ringColor = showHighlightRing ? palette.highlightRing : null;
   const ringWidth = showHighlightRing ? HIGHLIGHT_RING_WIDTH : 0;
   const ringOffset = ringWidth / 2;
 
@@ -91,7 +84,7 @@ export const TOBox = memo(function TOBox({
         y={y}
         width={width}
         height={height}
-        fill="#ffffff"
+        fill={palette.boxBody}
         stroke={stroke}
         strokeWidth={1}
         strokeDasharray={isExternal ? '4 2' : undefined}
@@ -150,7 +143,7 @@ export const TOBox = memo(function TOBox({
           y={y + height - 3}
           fontSize={8}
           textAnchor="middle"
-          fill={dimmed ? '#aaa' : '#666'}
+          fill={dimmed ? palette.baseTableLabelDimmed : palette.baseTableLabel}
           fontStyle="italic"
         >
           {to.baseTable.name}
@@ -166,6 +159,7 @@ export const TOBox = memo(function TOBox({
  * SVG-Entsprechung eines hohen z-Index: Render-Reihenfolge bestimmt Stacking.
  */
 export const SelectionRing = memo(function SelectionRing({ to }: { to: TableOccurrence }) {
+  const palette = useGraphPalette();
   const layout = layoutTOBox(to);
   const w = SELECTED_RING_WIDTH;
   const offset = w / 2;
@@ -178,7 +172,7 @@ export const SelectionRing = memo(function SelectionRing({ to }: { to: TableOccu
       rx={w}
       ry={w}
       fill="none"
-      stroke={SELECTED_RING_COLOR}
+      stroke={palette.selectionRing}
       strokeWidth={w}
       strokeLinejoin="round"
       pointerEvents="none"

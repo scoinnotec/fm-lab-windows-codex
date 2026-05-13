@@ -8,6 +8,10 @@ export type ObjectType = components['schemas']['ObjectType'];
  * A reference item as returned by the /api/references endpoint (direction=all).
  * The actual API returns a flat array with a direction discriminator,
  * not the nested structure from the OpenAPI spec.
+ *
+ * Container_UUID/Container_Type sind für Sub-Knoten (LayoutObject, ScriptStep)
+ * gesetzt — diese öffnen sich beim Klick im Container-View mit dem Sub-Knoten
+ * als ref-Highlight. Für eigenständige Objekte sind beide Felder null.
  */
 export interface ReferenceItem {
   direction: 'parent' | 'child';
@@ -17,6 +21,8 @@ export interface ReferenceItem {
   File_Name: string;
   Link_Role: string;
   Is_Cross_File: boolean;
+  Container_UUID?: string | null;
+  Container_Type?: string | null;
 }
 
 /**

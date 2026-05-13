@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { LayoutObject } from '../hooks/useLayoutData';
-import { fillFor, strokeFor } from './LayoutObjectShape';
+import { useLayoutObjectPalette } from './layoutObjectTheme';
 
 type Props = {
   objects: LayoutObject[];
@@ -55,6 +55,7 @@ export function LayoutTypeFilter({
   detailsMode,
   onToggleDetailsMode,
 }: Props) {
+  const palette = useLayoutObjectPalette();
   const counts = useMemo(() => {
     const m = new Map<string, number>();
     for (const o of objects) m.set(o.object_type, (m.get(o.object_type) ?? 0) + 1);
@@ -78,8 +79,8 @@ export function LayoutTypeFilter({
           const state = groupActivation(visible, activeTypes);
           // Repräsentative Farbe = erste Typ-Farbe der Gruppe (alle Typen einer Gruppe
           // teilen ohnehin dieselbe Kategorie-Farbe im SVG).
-          const fill = fillFor(visible[0]);
-          const stroke = strokeFor(visible[0]);
+          const fill = palette.fillFor(visible[0]);
+          const stroke = palette.strokeFor(visible[0]);
           const targetActive = state !== 'all';
           return (
             <button
@@ -104,8 +105,8 @@ export function LayoutTypeFilter({
             {visible.map(type => {
               const count = counts.get(type) ?? 0;
               const active = activeTypes.has(type);
-              const fill = fillFor(type);
-              const stroke = strokeFor(type);
+              const fill = palette.fillFor(type);
+              const stroke = palette.strokeFor(type);
               return (
                 <button
                   key={type}

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { PluginCard, type PluginInfo } from '../components/PluginCard';
+import { ThemeToggle } from '../components/ThemeToggle';
 import './SettingsView.css';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3003';
@@ -56,6 +57,9 @@ export const SettingsView: React.FC = () => {
       <div className="settings-header">
         <Link to="/" className="settings-back" aria-label="Zurück zur Suche">← Zurück</Link>
         <h1>Plugin-Verwaltung</h1>
+        <div style={{ marginLeft: 'auto' }}>
+          <ThemeToggle />
+        </div>
       </div>
 
       {loading && <div className="settings-loading">Lade Plugins...</div>}

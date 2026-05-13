@@ -323,9 +323,23 @@ function extract(html, { sourceId = 'mbs' } = {}) {
 
   // Metadaten — auf das Original-HTML, nicht auf die getrimmten Slices
   const metaTable = parseMetadataTable(html);
+  // Synthetische PluginComponent-UUID für Cross-Navigation aus der Plugin-Doku
+  // (PRD prd_pseudo_object_types_filter.md §5). Folgt der Konvention aus
+  // sql/create_universal_catalogs.sql: md5('PluginComponent::MBS::' || component).
+  // Heute nur MBS unterstützt (sourceId='mbs'); bei zukünftigen Container-Plugins
+  // muss der Source-Prefix entsprechend gemappt werden.
+  let componentUuid = null;
+  if (metaTable.component && sourceId === 'mbs') {
+    const crypto = require('crypto');
+    componentUuid = crypto
+      .createHash('md5')
+      .update(`PluginComponent::MBS::${metaTable.component}`)
+      .digest('hex');
+  }
   const metadata = {
     name: parseFunctionName(html),
     component: metaTable.component,
+    componentUuid,
     version: metaTable.version,
     platforms: metaTable.platforms,
     signature: parseSignature(html),

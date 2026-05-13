@@ -1,6 +1,6 @@
 const Joi = require('joi');
 const { createError } = require('./error-handler');
-const { OBJECT_TYPES, OUTPUT_FORMATS, REFERENCE_DIRECTIONS, LINK_TYPES } = require('../config/constants');
+const { OBJECT_TYPES, OUTPUT_FORMATS, REFERENCE_DIRECTIONS, LINK_TYPES, PSEUDO_TOKEN_TYPES } = require('../config/constants');
 const environment = require('../config/environment');
 
 /**
@@ -20,10 +20,36 @@ const schemas = {
   }),
 
   // GET /api/list
+  // PRD prd_pseudo_object_types_filter.md §7.2 — neue Pseudo-Token-Parameter:
+  //   ?with_usage / ?with_category / ?category=A,B,C / ?sort=usage|name|category
+  // (snake_case konsistent mit link_type/group_by; index.js normalisiert
+  // Query-Keys automatisch zu lowercase, deshalb keine camelCase-Form möglich.)
+  // Diese sind nur für Pseudo-Token-Typen + PluginComponent (nur Usage/Sort) sinnvoll;
+  // bei anderen Typen werden sie ignoriert (kein Fehler).
   list: Joi.object({
     type: Joi.string().lowercase().valid(...OBJECT_TYPES.map(t => t.toLowerCase())).required(),
     file: Joi.string().optional(),
     limit: Joi.number().integer().min(0).max(environment.api.maxLimit).default(environment.api.defaultLimit),
+    with_usage: Joi.boolean().default(false),
+    with_category: Joi.boolean().default(false),
+    // Komma-getrennte Liste; Joi-String, splitting im Service. URL-Beispiel:
+    // ?category=Get%20Functions,Text%20Functions
+    category: Joi.string().optional(),
+    sort: Joi.string().lowercase().valid('usage', 'name', 'category').optional(),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/list/categories - Filter-Pillen-Daten für einen Pseudo-Token-Typ.
+  // PRD §7.2 — Liefert { category, token_count, total_usage } pro Kategorie.
+  // Nur für PSEUDO_TOKEN_TYPES gültig; PluginComponent → HTTP 400.
+  listCategories: Joi.object({
+    type: Joi.string()
+      .lowercase()
+      .valid(...PSEUDO_TOKEN_TYPES.map(t => t.toLowerCase()))
+      .required(),
+    file: Joi.string().optional(),
     format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
     meta: Joi.boolean().default(false),
     debug: Joi.boolean().default(false),
@@ -85,6 +111,17 @@ const schemas = {
     debug: Joi.boolean().default(false),
   }),
 
+  // GET /api/back-references - Cross-Reference Highlight Lookup
+  // PRD prd_cross_references_hilite.md §6.3
+  backReferences: Joi.object({
+    destination: Joi.string().required(),
+    origin: Joi.string().required(),
+    mode: Joi.string().lowercase().valid('uuid', 'name', 'auto').default('auto'),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
   // GET /api/info
   info: Joi.object({
     file: Joi.string().optional(),
@@ -97,6 +134,8 @@ const schemas = {
     format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
     meta: Joi.boolean().default(false),
     debug: Joi.boolean().default(false),
+    // PRD §5.1 — optionale Token-Anreicherung mit Reference-DB pro Sprache
+    enrich: Joi.string().optional(),
   }),
 
   // GET /api/get-calc - Standalone calculation by hash (token format only)
@@ -105,6 +144,8 @@ const schemas = {
     format: Joi.string().lowercase().valid('tokens', 'json').default('tokens'),
     meta: Joi.boolean().default(false),
     debug: Joi.boolean().default(false),
+    // PRD §5.2 — optionale Calc-Token-Anreicherung über function_name_lookup
+    enrich: Joi.string().optional(),
   }),
 
   // GET/POST /api/query - Execute custom SQL template

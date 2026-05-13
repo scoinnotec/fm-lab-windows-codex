@@ -51,6 +51,14 @@ app.get('/', (req, res) => {
       query: '/api/query?template=<name>',
       report: '/api/report?template=<name>',
       pluginDocs: '/api/plugin-docs/:source/:function',
+      referenceCategories: '/api/reference/categories?lang=<lang>',
+      referenceSteps: '/api/reference/steps?lang=<lang>',
+      referenceStepDetail: '/api/reference/steps/:idOrSlug?lang=<lang>&content=<meta|summary|full>',
+      referenceFunctions: '/api/reference/functions?lang=<lang>',
+      referenceFunctionDetail: '/api/reference/functions/:nameOrId?lang=<lang>&content=<meta|summary|full>',
+      referenceLookup: '/api/reference/lookup?token=<token>&lang=<lang>',
+      referenceHelp: '/api/reference/help/:lang/:slug',
+      referenceHelpStatus: '/api/reference/help/status',
       adminReload: 'POST /api/admin/reload',
     },
     documentation: 'See README.md for full API documentation',
@@ -104,6 +112,7 @@ async function start() {
       console.log(`  GET  /api/query          - Execute custom SQL template`);
       console.log(`  GET  /api/report         - Execute report SQL template`);
       console.log(`  GET  /api/plugin-docs    - Plugin function documentation (MBS, ...)`);
+      console.log(`  GET  /api/reference/*    - FileMaker Reference (Steps, Functions, Help)`);
       console.log('');
     });
 

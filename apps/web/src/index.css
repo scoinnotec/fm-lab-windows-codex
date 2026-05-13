@@ -4,8 +4,8 @@
   font-weight: 400;
 
   color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-app);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -23,6 +23,8 @@ body {
   justify-content: center;
   min-width: 320px;
   min-height: 100vh;
+  background-color: var(--color-bg-app);
+  color: var(--color-text-primary);
 }
 
 #root {
@@ -43,14 +45,14 @@ input, select {
   font-family: inherit;
   font-size: 1rem;
   padding: 0.5rem;
-  border: 1px solid #646cff;
+  border: 1px solid var(--color-accent);
   border-radius: 4px;
-  background-color: #1a1a1a;
-  color: white;
+  background-color: var(--color-bg-input);
+  color: var(--color-text-primary);
 }
 
 input:focus, select:focus {
-  outline: 2px solid #646cff;
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
@@ -60,18 +62,18 @@ button {
   padding: 0.5rem 1rem;
   border: 1px solid transparent;
   border-radius: 4px;
-  background-color: #646cff;
-  color: white;
+  background-color: var(--color-accent);
+  color: var(--color-text-inverse);
   cursor: pointer;
   transition: background-color 0.25s;
 }
 
 button:hover {
-  background-color: #535bf2;
+  background-color: var(--color-accent-hover);
 }
 
 button:active {
-  background-color: #4248c4;
+  background-color: var(--color-accent-active);
 }
 
 ul {
@@ -88,30 +90,5 @@ li {
 }
 
 small {
-  color: #888;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-
-  input, select {
-    background-color: #f9f9f9;
-    color: #213547;
-    border-color: #646cff;
-  }
-
-  li {
-    background-color: transparent;
-  }
-
-  button {
-    background-color: #646cff;
-  }
-
-  button:hover {
-    background-color: #535bf2;
-  }
+  color: var(--color-text-muted);
 }

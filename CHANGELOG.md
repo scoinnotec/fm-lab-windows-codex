@@ -12,6 +12,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), version
 
 ---
 
+## [0.6.7] — 2026-05-13
+
+Central reference database, pseudo object types, token-based code rendering, cross-reference highlight, and full dark mode.
+
+- **Central reference database** from `fm-spec`: localized Claris Help cache (English + German) served via a dedicated REST endpoint with language selector — ScriptStep and function reference info available inline in the frontend
+- New **`install-claris-docs`** skill: crawls and installs Claris Help locally in one or multiple languages
+- **MBS plugin help** served locally alongside Claris Help
+- **Pseudo object types** in `ObjectCatalog`: `ScriptStep`, `Function`, `MBS-Component`, and `MBS-Function` registered as first-class catalog entries with type-specific detail templates — searchable and filterable like any other object
+- **Token-based code rendering** across all formula contexts:
+  - Scripts: token endpoint replaces plain step text — refs, hover popovers, code folding, code filter, inspections popover, viewer header
+  - Custom Functions: dedicated `CustomFunctionViewer` with the same token model
+  - Calculated / AutoEnter fields: rendered via `CalcTokenSpan` / `FieldViewer` with full token interactivity
+- **Cross-reference highlight ("Ref-Mode")**: highlights every occurrence of a referenced object across script bodies, calculations, and reference panels; new back-references API drives navigation
+- **Universal function links** in `convert_xml.sql`: built-in functions, plugin functions, and `Get(...)` sub-parameters registered as `ObjectLinks` in correct chunk order — enables exhaustive call-chain queries
+- **Field references for every ScriptStep variant**: the parser now resolves field refs across all script-step shapes, not just the canonical ones — eliminates blind spots in dependency queries
+- **Pseudo-token filter toolbar** in the references panel with type-aware filtering and search
+- **Full dark mode**: `ThemeToggle`, persistent theme preference, themed layout-object and relationship-graph palettes, dark mode extended to Claris/MBS help panels
+
+---
+
 ## [0.6.6] — 2026-05-09
 
 Interactive layout view, layout object Z-order in the parser, and rich frontend navigation.

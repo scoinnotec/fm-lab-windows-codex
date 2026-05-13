@@ -23,10 +23,19 @@ const controller = require('../controllers/plugin-docs.controller');
  */
 
 router.get('/plugin-docs', controller.listSources);
+// Index-Page (Components-Übersicht) — VOR der generischen :function/page-Route,
+// damit "page" nicht als Funktionsname interpretiert wird.
+router.get('/plugin-docs/:source/page', controller.getIndexPage);
+// /page-Variante VOR der JSON-Variante registrieren — sonst landet "/page"
+// als zusätzlicher Pfad-Suffix nicht in der spezifischen Page-Route.
+router.get('/plugin-docs/:source/_categories/:category/page', controller.getCategoryPage);
 router.get('/plugin-docs/:source/_categories/:category', controller.getCategoryFunctions);
 router.get('/plugin-docs/:source/_categories', controller.getCategories);
 router.get('/plugin-docs/:source/_search', controller.searchFunctions);
 router.get('/plugin-docs/:source', controller.getSourceStatus);
+// Page-Route VOR der generischen :function-Route, weil Express links-nach-rechts
+// matcht und sonst "/page" als Funktionsname interpretiert würde.
+router.get('/plugin-docs/:source/:function/page', controller.getFunctionPage);
 router.get('/plugin-docs/:source/:function', controller.getFunctionDoc);
 
 module.exports = router;
