@@ -35,6 +35,8 @@ docs/*
 !docs/.gitkeep
 !docs/agents/
 !docs/agents/**
+!docs/fm-lab/
+!docs/fm-lab/**
 
 # Node.js dependencies
 node_modules/

@@ -4,23 +4,25 @@ A **DuckDB**-based tool for analyzing **FileMaker SaXML exports**. Converts the 
 
 ![FM-Lab](Banner.jpg)
 
-## Prolog
+## Prologue
 
-FileMaker development is facing a new paradigm: **code must be readable and understandable by both humans and AI agents**. While every other major programming environment has a well-established ecosystem for code analysis, documentation, and refactoring, FileMaker's proprietary format makes it hard to participate in that ecosystem — there is no native API to query a solution's structure programmatically. Numerous tools try to bridge this gap, but often lack depth or scalability. Some serve human developer workflows well; others target AI integration but rely on repetitive, fragile setups. Most are closed source, which limits their adaptability in a rapidly evolving landscape.
+FileMaker development is facing a new paradigm: **solution structure must be readable and understandable by both humans and AI agents**. While many major programming environments have well-established ecosystems for code analysis, documentation and refactoring, FileMaker's proprietary format makes it hard to participate in that ecosystem — there is no native API to query a solution's structure programmatically.
 
-This project takes a different approach. It converts the full structure of a FileMaker solution — exported as SaXML — into a queryable DuckDB database. All object types (scripts, fields, layouts, relationships, value lists, and more) land in dedicated tables, with **a universal catalog that links objects and their dependencies across the entire solution**. DuckDB's in-process engine makes this catalog fast enough for both interactive queries and **AI-driven analysis at scale**, without any database server setup. A REST API and a web client provide additional access layers for GUI and integration workflows.
+Several tools try to bridge this gap. Some serve human developer workflows very well, but many are not designed for scalable, agent-driven analysis or open extension. Most are closed source, which limits their adaptability in a rapidly evolving landscape.
 
-The first release focuses on this core: reliable XML conversion, a comprehensive object catalog, and a modular architecture that is open source and **easy to extend**. Future releases will build on this foundation — the long-term goal is to become a solid developer tooling platform for the FileMaker space.
+This project takes a different approach. It converts the structure of a FileMaker solution — exported as SaXML — into a queryable DuckDB database. The relevant object types (scripts, fields, layouts, relationships, value lists, and more) land in dedicated tables, with **a universal catalog that links objects and their dependencies across the entire solution**. DuckDB's in-process engine makes this catalog fast enough for both interactive queries and **AI-driven analysis at scale**, without any database server setup. A REST API and a web client provide additional access layers for GUI and integration workflows.
 
-**Addendum:** [Claris has announced native support for AI coding within FileMaker](https://www.claris.com/blog/2026/how-claris-is-building-for-what-comes-next) for the upcoming releases. This does not contradict the goals of this project, but rather emphasizes the need for a solid foundation for code analysis and tooling in the FileMaker ecosystem. The architecture of fm-lab is designed to be flexible and adaptable, so it can integrate with Claris's AI coding features as they evolve, while also providing value to developers who want to leverage AI tools in their workflows today.
+The first release focuses on this core: reliable **XML conversion**, a comprehensive **object catalog,** and a modular architecture that is open source and **designed for extension**. Future releases will build on this foundation — the long-term goal is to become a solid developer tooling platform for the FileMaker space.
+
+**Addendum:** [Claris has announced upcoming agentic coding functionality for FileMaker](https://www.claris.com/blog/2026/how-claris-is-building-for-what-comes-next) for the upcoming releases. This does not contradict the goals of this project, but rather emphasizes the need for a solid foundation for code analysis and tooling in the FileMaker ecosystem. The architecture of fm-lab is designed to be flexible and adaptable, so it can integrate with Claris's AI coding features as they evolve, while also providing value to developers who want to leverage AI tools in their workflows today.
 
 
 ## Features
 
-- **XML Ingestion pipeline** — for FileMaker XML exports into DuckDB based on a flexible SQL template system, designed for easy maintenance and updates as FileMaker evolves ♻️
-- **Detailed Object Catalog** — 30 tables covering all FileMaker object types, with a universal catalog linking objects and their dependencies for fast cross-reference queries 🔗
-- **Detailed Reference Catalog** — localized tables for all FileMaker ScriptSteps and Functions, providing reference queries and inline help-docs across up to 11 locales 📄
-- **DuckDB Backend** — In-process analytical database engine for fast and flexible queries without server setup, delivers results in milliseconds even for large solutions 🚀
+- **XML Ingestion Pipeline** — for FileMaker XML exports into a DuckDB database using a flexible SQL template system, designed for easy maintenance and updates as FileMaker evolves ♻️
+- **Detailed Object Catalog** — a set of detailed tables covering the relevant FileMaker object types, with a universal catalog linking objects and their dependencies for fast cross-reference queries 🔗
+- **Detailed Reference Catalog** — localized tables for all documented FileMaker script steps and functions, providing reference queries and inline help-docs across up to 11 locales 📄
+- **DuckDB Backend** — In-process analytical database engine for fast and flexible queries without server setup, often delivering results in milliseconds, even for large solutions 🚀
 - **REST API** — Express server providing HTTP access to the analysis database, enabling integration with external tools and services 🧩
 - **Web Client** — React/Vite frontend for interactive exploration of the solution's structure and dependencies with rich visualizations 🔎
 - **Claude Skills** — Slash commands for conversion, analysis, and documentation installation, designed for seamless use within the Claude Code environment 🤖
@@ -39,18 +41,22 @@ SaveAsXML → Parser → DuckDB → REST API ←→ Tools
                                        ←→ AI Agent
 ```
 
+## How it works
+
+Refer to [detailed explanations](docs/fm-lab/Wiki/How%20it%20works.md) for an in-depth walkthrough of the underlying architecture, strategic approach, and information flow within FM-Lab.
+
 
 ## Components
 
-- **XML Export** (`xml/`) — prepared FileMaker XML exports (SaXML) for conversion from your solution
-- **SQL Templates** (`sql/`) — Conversion templates and universal catalogs
-- **DuckDB Catalog** (`db/`) — the resulting DuckDB database with all FileMaker objects and their relationships
-- **REST API** (`rest-api/`) — Express server for HTTP access to the analysis database
+- **XML (Input)** (`xml/`) — FileMaker XML exports (SaXML) prepared for conversion from your solution.
+- **SQL Templates** (`sql/`) — Conversion templates and parser templates for universal catalogs.
+- **DuckDB Catalog** (`db/`) — The generated DuckDB database containing the extracted FileMaker objects and their relationships.
+- **REST API** (`rest-api/`) — Express server for HTTP access to the analysis database.
 - **Web Client** (`apps/web/`) — React/Vite frontend
-- **Scripts** (`scripts/`) — Utility scripts for various tasks
-- **Docs** (`docs/`) — Documentation files for FileMaker Pro and MBS plugin functions, installable via Claude Skills
-- **Claude Skills** (`.claude/skills/`) — Slash commands for conversion, analysis, and documentation installation
-- **Plugin registry** (`.fmlab/`) — registry and prefs for fm-lab plugins
+- **Tools** (`tools/`) — Utility scripts for various tasks.
+- **Docs** (`docs/`) — Documentation files for FileMaker Pro and MBS plugin functions, installable via Claude Skills.
+- **Claude Skills** (`.claude/skills/`) — Contains Claude Code skills and slash commands for installation, conversion, lookup and analysis.
+- **Plugin registry** (`.fmlab/`) — Registry and preferences for FM-Lab plugins.
 
 
 ## Compatibility
@@ -122,6 +128,7 @@ npm run dev
 
 ## Further Documentation
 
+- [`Documentation.md`](docs/fm-lab/Documentation.md) — Full project documentation (work in progress)
 - [`CLAUDE.md`](CLAUDE.md) — in-depth technical documentation on tables, columns, and query patterns
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
 
