@@ -1,8 +1,16 @@
 const dotenv = require('dotenv');
 const path = require('path');
+const appLogger = require('../utils/app-logger');
 
 // Load environment variables from .env file
 dotenv.config();
+
+function parseBooleanEnv(value, defaultValue = false) {
+  if (value === undefined || value === null || value === '') {
+    return defaultValue;
+  }
+  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
+}
 
 /**
  * Environment configuration with defaults and validation
@@ -47,6 +55,30 @@ const environment = {
     vaultPath: process.env.OBSIDIAN_VAULT_PATH || null,
   },
 
+  // AI chat/agent configuration.
+  // Conversations are stored as JSON files so the DuckDB catalog can stay READ_ONLY.
+  ai: {
+    chatsDir: process.env.AI_CHAT_DIR || './data/ai-chats',
+    chatRetentionDays: parseInt(process.env.AI_CHAT_RETENTION_DAYS) || 30,
+    chatMaxConversations: parseInt(process.env.AI_CHAT_MAX_CONVERSATIONS) || 200,
+    chatMaxMessages: parseInt(process.env.AI_CHAT_MAX_MESSAGES) || 60,
+    chatMaxFileBytes: parseInt(process.env.AI_CHAT_MAX_FILE_BYTES) || 1048576,
+    defaultProvider: process.env.AI_PROVIDER || 'openai',
+    maxContextRows: parseInt(process.env.AI_MAX_CONTEXT_ROWS) || 40,
+    openai: {
+      baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+      model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+    },
+    anthropic: {
+      baseUrl: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com/v1',
+      model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest',
+    },
+    ollama: {
+      baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+      model: process.env.OLLAMA_MODEL || 'llama3.1',
+    },
+  },
+
   // Plugin-Funktions-Dokumentation (MBS, künftig weitere Quellen)
   // Pfade relativ zur rest-api/ — Default zeigt auf docs/mbs/ im Projekt-Root.
   pluginDocs: {
@@ -73,11 +105,13 @@ const environment = {
     defaultLimit: parseInt(process.env.DEFAULT_LIMIT) || 100,
     maxLimit: parseInt(process.env.MAX_LIMIT) || 10000,
     requestTimeout: parseInt(process.env.REQUEST_TIMEOUT_MS) || 30000,
+    allowDebugOutput: environmentSafeDebugAllowed(),
   },
 
   // Logging Configuration
   logging: {
     level: process.env.LOG_LEVEL || 'info',
+    format: process.env.LOG_FORMAT || 'text',
     file: process.env.LOG_FILE || './logs/api.log',
   },
 
@@ -87,6 +121,10 @@ const environment = {
     origin: process.env.CORS_ORIGIN || '*',
   },
 };
+
+function environmentSafeDebugAllowed() {
+  return process.env.NODE_ENV !== 'production' && parseBooleanEnv(process.env.ALLOW_DEBUG_OUTPUT, false);
+}
 
 /**
  * Validate required environment variables
@@ -104,8 +142,7 @@ function validate() {
   }
 
   if (errors.length > 0) {
-    console.error('Environment validation failed:');
-    errors.forEach(err => console.error(`  - ${err}`));
+    appLogger.error('Environment validation failed', { errors });
     process.exit(1);
   }
 }

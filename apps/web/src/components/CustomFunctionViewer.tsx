@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import type { CustomFunctionTokens } from '../script/calcTokens';
 import { HighlightRefContext } from '../script/highlightContext';
 import { CalcTokenSpan } from './CalcTokenSpan';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 import './CustomFunctionViewer.css';
 
 interface CustomFunctionViewerProps {
@@ -26,6 +27,7 @@ interface CustomFunctionViewerProps {
  * und Zeilenumbrüche sichtbar werden.
  */
 export const CustomFunctionViewer: React.FC<CustomFunctionViewerProps> = ({ data, highlightRefUuids }) => {
+  const language = getUiLanguage();
   // Erstes markiertes Token in den Sichtbereich scrollen (analog ScriptViewer).
   const rootRef = useRef<HTMLDivElement>(null);
   const highlightSig = highlightRefUuids ? Array.from(highlightRefUuids).sort().join(',') : '';
@@ -40,7 +42,7 @@ export const CustomFunctionViewer: React.FC<CustomFunctionViewerProps> = ({ data
 
   return (
     <HighlightRefContext.Provider value={highlightRefUuids ?? null}>
-      <div ref={rootRef} className="fm-customfunction" aria-label="CustomFunction-Definition">
+      <div ref={rootRef} className="fm-customfunction" aria-label={tx(language, 'Eigene Funktion: Definition', 'Custom function definition')}>
         <div className="fm-customfunction-header">
           <h2 className="type-detail-heading">
             {data.object.name}

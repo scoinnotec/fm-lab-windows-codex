@@ -2,6 +2,11 @@
  * Response Builder Utility
  * Creates standardized API responses
  */
+const environment = require('../config/environment');
+
+function shouldIncludeDebugOutput(debugQuery) {
+  return Boolean(debugQuery && environment.api.allowDebugOutput);
+}
 
 /**
  * Build a success response
@@ -20,7 +25,7 @@ function buildSuccess(data, meta = null, debugQuery = null) {
     response.meta = meta;
   }
 
-  if (debugQuery) {
+  if (shouldIncludeDebugOutput(debugQuery)) {
     response.debug = {
       query: debugQuery,
     };
@@ -113,10 +118,12 @@ function getContentType(format) {
  * @param {string} debugQuery - Optional debug query
  */
 function sendFormatted(res, data, format = 'json', meta = null, debugQuery = null) {
+  const safeDebugQuery = shouldIncludeDebugOutput(debugQuery) ? debugQuery : null;
+
   // JSON-shaped responses use the standard {success, data, meta} envelope.
   // 'tokens' is structured JSON like 'json', not a text-based format.
   if (format === 'json' || format === 'tokens') {
-    const response = buildSuccess(data, meta, debugQuery);
+    const response = buildSuccess(data, meta, safeDebugQuery);
     res.json(response);
     return;
   }
@@ -128,7 +135,7 @@ function sendFormatted(res, data, format = 'json', meta = null, debugQuery = nul
   // Optionally append meta/debug info as comments for non-JSON formats
   let output = data;
 
-  if (meta || debugQuery) {
+  if (meta || safeDebugQuery) {
     // Add meta/debug as comments at the end
     const comments = [];
 
@@ -143,13 +150,13 @@ function sendFormatted(res, data, format = 'json', meta = null, debugQuery = nul
       }
     }
 
-    if (debugQuery) {
+    if (safeDebugQuery) {
       if (format === 'html') {
-        comments.push(`<!-- Debug Query: ${debugQuery} -->`);
+        comments.push(`<!-- Debug Query: ${safeDebugQuery} -->`);
       } else if (format === 'markdown') {
-        comments.push(`\n<!-- Debug Query: ${debugQuery} -->`);
+        comments.push(`\n<!-- Debug Query: ${safeDebugQuery} -->`);
       } else {
-        comments.push(`# Debug Query: ${debugQuery}`);
+        comments.push(`# Debug Query: ${safeDebugQuery}`);
       }
     }
 

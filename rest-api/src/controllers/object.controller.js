@@ -215,6 +215,60 @@ async function searchCount(req, res, next) {
 }
 
 /**
+ * GET /api/search/scripts - Search inside script steps, formulas and references
+ */
+async function scriptSearch(req, res, next) {
+  try {
+    const { q, file, folders, limit, offset, format = 'json', meta, debug } = req.query;
+
+    const result = await objectService.searchScriptContents({ q, file, folderUuids: folders, limit, offset });
+
+    const formattedData = formatters.format(result.data, format);
+
+    const debugQuery = debug
+      ? `script-search q=${q} file=${file || ''} folders=${folders || ''} limit=${limit} offset=${offset}`
+      : null;
+
+    sendFormatted(
+      res,
+      formattedData,
+      format,
+      meta ? result.meta : null,
+      debugQuery
+    );
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/search/scripts/count - Count script content search results
+ */
+async function scriptSearchCount(req, res, next) {
+  try {
+    const { q, file, folders, format = 'json', meta, debug } = req.query;
+
+    const result = await objectService.countScriptContentResults({ q, file, folderUuids: folders });
+
+    const formattedData = formatters.format(result.data, format);
+
+    const debugQuery = debug
+      ? `script-search-count q=${q} file=${file || ''} folders=${folders || ''}`
+      : null;
+
+    sendFormatted(
+      res,
+      formattedData,
+      format,
+      meta ? result.meta : null,
+      debugQuery
+    );
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
  * GET /api/references - Get object references
  */
 async function references(req, res, next) {
@@ -669,6 +723,8 @@ module.exports = {
   count,
   search,
   searchCount,
+  scriptSearch,
+  scriptSearchCount,
   references,
   backReferences,
 };

@@ -1,16 +1,31 @@
-import { useRef } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useMemo, useRef } from 'react';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useLayoutData } from '../hooks/useLayoutData';
 import { LayoutCanvas, type LayoutCanvasHandle } from '../components/LayoutCanvas';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { useEscapeStack } from '../hooks/useEscapeStack';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 import './LayoutView.css';
 
 export function LayoutView() {
+  const language = getUiLanguage();
   const { uuid } = useParams<{ uuid: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const canvasRef = useRef<LayoutCanvasHandle>(null);
+  const refParam = searchParams.get('ref');
+  const externalMatchUuids = useMemo(
+    () => (refParam ? new Set([refParam]) : null),
+    [refParam]
+  );
+  const clearRef = () => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('ref');
+      return next;
+    }, { replace: true });
+  };
 
   const { data, loading, error } = useLayoutData(uuid);
 
@@ -60,9 +75,9 @@ export function LayoutView() {
           type="button"
           onClick={handleBack}
           className="layout-view-back"
-          title="Zurück zur vorherigen Ansicht"
+          title={tx(language, 'Zurück zur vorherigen Ansicht', 'Back to previous view')}
         >
-          ← Zurück
+          ← {tx(language, 'Zurück', 'Back')}
         </button>
         <h1>
           Layout
@@ -80,13 +95,18 @@ export function LayoutView() {
       </header>
 
       <div className="layout-view-body">
-        {loading && <div className="layout-view-empty">Lade Layout…</div>}
-        {error && <div className="layout-view-error">Fehler: {error}</div>}
+        {loading && <div className="layout-view-empty">{tx(language, 'Lade Layout...', 'Loading layout...')}</div>}
+        {error && <div className="layout-view-error">{tx(language, 'Fehler', 'Error')}: {error}</div>}
         {!loading && !error && data && data.objects.length === 0 && (
-          <div className="layout-view-empty">Dieses Layout enthält keine Objekte.</div>
+          <div className="layout-view-empty">{tx(language, 'Dieses Layout enthält keine Objekte.', 'This layout contains no objects.')}</div>
         )}
         {!loading && !error && data && data.objects.length > 0 && (
-          <LayoutCanvas ref={canvasRef} data={data} />
+          <LayoutCanvas
+            ref={canvasRef}
+            data={data}
+            externalMatchUuids={externalMatchUuids}
+            onClearRef={clearRef}
+          />
         )}
       </div>
     </div>

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { LRUCache } = require('lru-cache');
 const environment = require('../config/environment');
+const appLogger = require('../utils/app-logger');
 
 /**
  * Help-Service — bedient den lokalen Claris-Hilfe-Mirror.
@@ -48,7 +49,7 @@ function loadManifest() {
     );
     return manifest;
   } catch (e) {
-    console.warn(`Failed to load claris-help manifest: ${e.message}`);
+    appLogger.warn('Failed to load claris-help manifest', { error: e.message });
     manifest = null;
     manifestLangs = new Set();
     return null;
@@ -95,7 +96,7 @@ function getSlugInventory(lang) {
         }
       }
     } catch (e) {
-      console.warn(`Failed to read slug inventory for '${lang}': ${e.message}`);
+      appLogger.warn('Failed to read slug inventory', { lang, error: e.message });
     }
   }
   slugInventory.set(lang, set);

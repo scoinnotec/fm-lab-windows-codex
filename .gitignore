@@ -19,24 +19,32 @@ logs/*
 *.duckdb.wal
 db/*
 !db/.gitkeep
-# Reference DB is shipped with the repo (FileMaker function and script step reference)
-!rest-api/db/fm_reference.duckdb
+# DuckDB files are local runtime artifacts. The optional FileMaker reference DB
+# can be placed in rest-api/db/fm_reference.duckdb, but is not committed.
 
 # Data directory
 data/*
 !data/.gitkeep
+!data/mbs_component_exceptions.csv
+rest-api/data/*
+!rest-api/data/.gitkeep
 
 # XML files
 xml/*
 !xml/.gitkeep
+!xml/Kontakte.xml
+
+# Local FileMaker files
+fm/*
+!fm/.gitkeep
 
 # Docs directory (loaded on demand via install skills)
 docs/*
 !docs/.gitkeep
+!docs/windows-codex.md
+!docs/ASCII-Logo.txt
 !docs/agents/
 !docs/agents/**
-!docs/fm-lab/
-!docs/fm-lab/**
 
 # Node.js dependencies
 node_modules/
@@ -63,3 +71,4 @@ apps/*/.env.production
 # Plugin settings (local, generated on first run)
 .fmlab/plugins.json
 .fmlab/plugins/
+.fmlab/local-settings.json

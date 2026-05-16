@@ -16,14 +16,21 @@
 --   Drift-Indikator herangezogen wird. build_resolutions.sql bewusst NICHT
 --   enthalten, weil es nur abgeleitete Tabellen anlegt.
 
--- @SCHEMA_VERSION 1.0.0
--- @SCHEMA_VERSION_DATE 2026-05-13
+-- @SCHEMA_VERSION 1.0.4
+-- @SCHEMA_VERSION_DATE 2026-05-15
 -- @SCHEMA_HASH_FILES sql/convert_xml.sql sql/create_universal_catalogs.sql
 */
 
 
 INSTALL webbed FROM community;
 LOAD webbed;
+
+-- DuckDB-Tuning für große segmentierte Windows-Imports.
+-- Die FileMaker-Layoutanalyse kann sehr viele XML-Fragmente materialisieren;
+-- weniger Threads und ausgeschaltete Insert-Order-Erhaltung reduzieren
+-- Speicherpeaks deutlich.
+SET threads=4;
+SET preserve_insertion_order=false;
 
 -- json_escape() Macro entfernt: xml_to_json() wird nicht mehr verwendet.
 -- Stattdessen speichern wir rohes XML (Object_XML, Parameters_XML, Menu_XML, Theme_XML)
@@ -42,9 +49,12 @@ SET VARIABLE fm_xml = 'Test.xml';  -- Wird durch Skill-Script ersetzt
 SET VARIABLE schema_version = '1.0.0';   -- Wird durch Skill-Script ersetzt
 SET VARIABLE schema_hash = 'pending';    -- Wird durch Skill-Script ersetzt
 SET VARIABLE schema_notes = 'convert_xml.sql import';
+SET VARIABLE purge_references = true;    -- Bei segmentiertem Import nur im ersten Segment true
 
--- maximale Speichergröße für read_xml erhöhen (Standard: 16MB)
-SET VARIABLE max_filesize TO 256000000; -- 256 MB
+-- maximale Dateigröße für read_xml/read_xml_objects erhöhen.
+-- Große FileMaker-SaXML-Exporte können nach UTF-8-Konvertierung >1 GB sein.
+-- webbed.maximum_file_size ist BIGINT; 4 GB bleibt unter DuckDBs String/BLOB-Limit.
+SET VARIABLE max_filesize TO 4000000000; -- 4 GB
 
 
 -- ========================================
@@ -1099,7 +1109,7 @@ ALTER TABLE XMLStepReferences ADD COLUMN IF NOT EXISTS Variable_Scope VARCHAR;
 ALTER TABLE XMLStepReferences ADD COLUMN IF NOT EXISTS Usage_Type VARCHAR;
 
 -- Bestehende Einträge für diese Datei entfernen (Idempotenz)
-DELETE FROM XMLStepReferences WHERE File_Name = (
+DELETE FROM XMLStepReferences WHERE getvariable('purge_references') AND File_Name = (
     SELECT regexp_replace(
         xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
     ) FROM read_xml_objects(getvariable('fm_xml'),
@@ -1633,7 +1643,10 @@ nested_objects AS (
         child_xml as object_xml
     FROM nested_objects parent
     CROSS JOIN LATERAL unnest(
-        xml_extract_elements(parent.object_xml, '//ObjectList/LayoutObject')
+        xml_extract_elements(
+            parent.object_xml,
+            '//*[local-name()="ObjectList" and count(ancestor::LayoutObject)=1]/LayoutObject'
+        )
     ) WITH ORDINALITY AS t(child_xml, z_order)
     WHERE parent.Object_Type IN (
         'Portal',
@@ -1711,7 +1724,7 @@ CREATE TABLE IF NOT EXISTS XMLLayoutReferences (
 );
 
 -- Bestehende Einträge für diese Datei entfernen (Idempotenz)
-DELETE FROM XMLLayoutReferences WHERE File_Name = (
+DELETE FROM XMLLayoutReferences WHERE getvariable('purge_references') AND File_Name = (
     SELECT regexp_replace(
         xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
     ) FROM read_xml_objects(getvariable('fm_xml'),
@@ -2192,7 +2205,7 @@ CREATE TABLE IF NOT EXISTS MBS_SubnameMap (
 );
 
 -- Idempotenz: bestehende Einträge der aktuellen Datei entfernen
-DELETE FROM MBS_SubnameMap WHERE File_Name = (
+DELETE FROM MBS_SubnameMap WHERE getvariable('purge_references') AND File_Name = (
     SELECT regexp_replace(
         xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
     ) FROM read_xml_objects(getvariable('fm_xml'),
@@ -2262,7 +2275,7 @@ CREATE TABLE IF NOT EXISTS GetSubparameterMap (
 );
 
 -- Idempotenz: bestehende Einträge der aktuellen Datei entfernen
-DELETE FROM GetSubparameterMap WHERE File_Name = (
+DELETE FROM GetSubparameterMap WHERE getvariable('purge_references') AND File_Name = (
     SELECT regexp_replace(
         xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
     ) FROM read_xml_objects(getvariable('fm_xml'),
@@ -2364,14 +2377,14 @@ ALTER TABLE PluginFunctionUsages ADD COLUMN IF NOT EXISTS Calc_UUID VARCHAR;
 ALTER TABLE PluginFunctionUsages ADD COLUMN IF NOT EXISTS Plugin_Chunk_Index BIGINT;
 
 -- Idempotenz: bestehende Einträge der aktuellen Datei entfernen
-DELETE FROM XMLCalcReferences WHERE File_Name = (
+DELETE FROM XMLCalcReferences WHERE getvariable('purge_references') AND File_Name = (
     SELECT regexp_replace(
         xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
     ) FROM read_xml_objects(getvariable('fm_xml'),
         maximum_file_size=getvariable('max_filesize'))
 );
 
-DELETE FROM PluginFunctionUsages WHERE File_Name = (
+DELETE FROM PluginFunctionUsages WHERE getvariable('purge_references') AND File_Name = (
     SELECT regexp_replace(
         xml_extract_text(xml, '/FMSaveAsXML/@File')[1], '\.fmp12$', ''
     ) FROM read_xml_objects(getvariable('fm_xml'),

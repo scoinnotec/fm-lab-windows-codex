@@ -5,6 +5,7 @@ import { useGraphSearch } from '../hooks/useGraphSearch';
 import { TOBox, SelectionRing } from './TOBox';
 import { JoinLine } from './JoinLine';
 import { layoutTOBox } from './relationshipGraphLayout';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 type Props = {
   data: RelationshipGraphData;
@@ -46,6 +47,7 @@ function computeViewport(tos: TableOccurrence[]) {
 }
 
 export const RelationshipGraph = forwardRef<RelationshipGraphHandle, Props>(({ data, initialPreSelectUuid = null, onPreSelectExit }, externalRef) => {
+  const language = getUiLanguage();
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -214,33 +216,33 @@ export const RelationshipGraph = forwardRef<RelationshipGraphHandle, Props>(({ d
           <input
             ref={searchInputRef}
             type="search"
-            placeholder="TO suchen…"
+            placeholder={tx(language, 'TO suchen...', 'Search TO...')}
             value={search.query}
             onChange={onSearchChange}
             onKeyDown={onSearchKeyDown}
-            title="Tab: nächster Treffer · Shift+Tab: voriger · Esc: Reset"
-            aria-label="Table Occurrence suchen"
+            title={tx(language, 'Tab: nächster Treffer · Shift+Tab: voriger · Esc: Reset', 'Tab: next match · Shift+Tab: previous · Esc: reset')}
+            aria-label={tx(language, 'Tabellenauftreten suchen', 'Search table occurrence')}
           />
           {search.isPreSelectActive && search.preSelectName && (
-            <span className="relationship-graph-preselect-chip" title="Vorauswahl aufheben">
-              Vorauswahl: <strong>{search.preSelectName}</strong>
+            <span className="relationship-graph-preselect-chip" title={tx(language, 'Vorauswahl aufheben', 'Clear preselection')}>
+              {tx(language, 'Vorauswahl', 'Preselection')}: <strong>{search.preSelectName}</strong>
               <button
                 type="button"
                 onClick={handleExitPreSelectChip}
-                aria-label="Vorauswahl entfernen"
+                aria-label={tx(language, 'Vorauswahl entfernen', 'Remove preselection')}
               >✕</button>
             </span>
           )}
           {filterActive && (
             <span className="relationship-graph-match-count">
-              {search.matches.length} {search.matches.length === 1 ? 'Treffer' : 'Treffer'}
+              {search.matches.length} {tx(language, 'Treffer', search.matches.length === 1 ? 'match' : 'matches')}
             </span>
           )}
         </div>
-        <button onClick={fitToViewport} type="button" title="Auf Viewport zoomen">Fit</button>
-        <button onClick={reset100} type="button" title="100% Originalgröße">100%</button>
+        <button onClick={fitToViewport} type="button" title={tx(language, 'Auf Viewport zoomen', 'Zoom to viewport')}>Fit</button>
+        <button onClick={reset100} type="button" title={tx(language, '100% Originalgröße', '100% original size')}>100%</button>
         <span className="relationship-graph-stats">
-          {data.tableOccurrences.length} TOs · {data.relationships.length} Beziehungen
+          {data.tableOccurrences.length} TOs · {data.relationships.length} {tx(language, 'Beziehungen', 'relationships')}
           · Zoom {(transform.scale * 100).toFixed(0)}%
         </span>
       </div>

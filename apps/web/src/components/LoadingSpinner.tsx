@@ -1,4 +1,5 @@
 import React from 'react';
+import { currentText } from '../lib/uiLanguage';
 
 interface LoadingSpinnerProps {
   message?: string;
@@ -8,7 +9,7 @@ interface LoadingSpinnerProps {
  * Loading Spinner Component
  * Simple loading indicator for async operations
  */
-export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ message = 'Lädt...' }) => {
+export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ message = currentText('Lädt...', 'Loading...') }) => {
   return (
     <div style={{
       padding: '20px',

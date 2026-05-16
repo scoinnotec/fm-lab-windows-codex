@@ -49,6 +49,10 @@ PROJECT_ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-topleve
 SQL_TEMPLATE="$PROJECT_ROOT/sql/convert_xml.sql"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
+default_xml_dir() {
+    printf '%s\n' "$PROJECT_ROOT/xml"
+}
+
 # Locate DuckDB binary — check PATH first, then common install locations
 DUCKDB_BIN=""
 if command -v duckdb &>/dev/null; then
@@ -132,7 +136,7 @@ if $TEST_MODE; then
     LOG_DIR="$PROJECT_ROOT/logs"
     LOG_PREFIX="test_batch_import"
 else
-    XML_DIR="$PROJECT_ROOT/xml"
+    XML_DIR="${FM_LAB_XML_DIR:-$(default_xml_dir)}"
     DB_DIR="$PROJECT_ROOT/db"
     DB_FILE="$DB_DIR/fm_catalog.duckdb"
     LOG_DIR="$PROJECT_ROOT/logs"
@@ -716,7 +720,261 @@ EOF
     rm -f "$CATALOG_TEMP_LOG"
     echo ""
 
-    # 7a. Build resolution tables (ObjectHomes + TableOccurrenceResolution)
+    # 7a. Build table occurrence usage analysis
+    # Precomputes TO usage details so the REST API does not need slow live
+    # formula scans for every request.
+    echo "========================================="
+    echo "Building table occurrence usage analysis..."
+    echo "========================================="
+
+    TO_USAGE_TEMP_LOG=$(mktemp)
+    if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_table_occurrence_usage_analysis.sql") > "$TO_USAGE_TEMP_LOG" 2>&1; then
+        echo "✓ Table occurrence usage analysis built successfully"
+    else
+        echo "✗ WARNING: Table occurrence usage analysis failed"
+
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        echo "ERROR: Table Occurrence Usage Analysis" >> "$ERROR_LOG_FILE"
+        echo "Time: $(date '+%Y-%m-%d %H:%M:%S')" >> "$ERROR_LOG_FILE"
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        cat "$TO_USAGE_TEMP_LOG" >> "$ERROR_LOG_FILE"
+        echo "" >> "$ERROR_LOG_FILE"
+
+        echo "Error details:"
+        cat "$TO_USAGE_TEMP_LOG" | sed 's/^/  /'
+
+        if $FAIL_FAST; then
+            rm -f "$TO_USAGE_TEMP_LOG"
+            echo ""
+            echo "========================================="
+            echo "FAIL-FAST MODE: Stopping batch import"
+            echo "========================================="
+            echo "Failed during: Table Occurrence Usage Analysis"
+            echo "Error log: $ERROR_LOG_FILE"
+            echo ""
+            exit 1
+        fi
+    fi
+    rm -f "$TO_USAGE_TEMP_LOG"
+    echo ""
+
+    # 7b. Build object usage analysis
+    echo "========================================="
+    echo "Building object usage analysis..."
+    echo "========================================="
+
+    OBJECT_USAGE_TEMP_LOG=$(mktemp)
+    if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_object_usage_analysis.sql") > "$OBJECT_USAGE_TEMP_LOG" 2>&1; then
+        echo "✓ Object usage analysis built successfully"
+    else
+        echo "✗ WARNING: Object usage analysis failed"
+
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        echo "ERROR: Object Usage Analysis" >> "$ERROR_LOG_FILE"
+        echo "Time: $(date '+%Y-%m-%d %H:%M:%S')" >> "$ERROR_LOG_FILE"
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        cat "$OBJECT_USAGE_TEMP_LOG" >> "$ERROR_LOG_FILE"
+        echo "" >> "$ERROR_LOG_FILE"
+
+        echo "Error details:"
+        cat "$OBJECT_USAGE_TEMP_LOG" | sed 's/^/  /'
+
+        if $FAIL_FAST; then
+            rm -f "$OBJECT_USAGE_TEMP_LOG"
+            echo ""
+            echo "========================================="
+            echo "FAIL-FAST MODE: Stopping batch import"
+            echo "========================================="
+            echo "Failed during: Object Usage Analysis"
+            echo "Error log: $ERROR_LOG_FILE"
+            echo ""
+            exit 1
+        fi
+    fi
+    rm -f "$OBJECT_USAGE_TEMP_LOG"
+    echo ""
+
+    # 7c. Build credential analysis
+    echo "========================================="
+    echo "Building credential analysis..."
+    echo "========================================="
+
+    CREDENTIAL_TEMP_LOG=$(mktemp)
+    if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_credential_analysis.sql") > "$CREDENTIAL_TEMP_LOG" 2>&1; then
+        echo "✓ Credential analysis built successfully"
+    else
+        echo "✗ WARNING: Credential analysis failed"
+
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        echo "ERROR: Credential Analysis" >> "$ERROR_LOG_FILE"
+        echo "Time: $(date '+%Y-%m-%d %H:%M:%S')" >> "$ERROR_LOG_FILE"
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        cat "$CREDENTIAL_TEMP_LOG" >> "$ERROR_LOG_FILE"
+        echo "" >> "$ERROR_LOG_FILE"
+
+        echo "Error details:"
+        cat "$CREDENTIAL_TEMP_LOG" | sed 's/^/  /'
+
+        if $FAIL_FAST; then
+            rm -f "$CREDENTIAL_TEMP_LOG"
+            echo ""
+            echo "========================================="
+            echo "FAIL-FAST MODE: Stopping batch import"
+            echo "========================================="
+            echo "Failed during: Credential Analysis"
+            echo "Error log: $ERROR_LOG_FILE"
+            echo ""
+            exit 1
+        fi
+    fi
+    rm -f "$CREDENTIAL_TEMP_LOG"
+    echo ""
+
+    # 7d. Build API integration analysis
+    echo "========================================="
+    echo "Building API integration analysis..."
+    echo "========================================="
+
+    API_INTEGRATION_TEMP_LOG=$(mktemp)
+    if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_api_integration_analysis.sql") > "$API_INTEGRATION_TEMP_LOG" 2>&1; then
+        echo "✓ API integration analysis built successfully"
+    else
+        echo "✗ WARNING: API integration analysis failed"
+
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        echo "ERROR: API Integration Analysis" >> "$ERROR_LOG_FILE"
+        echo "Time: $(date '+%Y-%m-%d %H:%M:%S')" >> "$ERROR_LOG_FILE"
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        cat "$API_INTEGRATION_TEMP_LOG" >> "$ERROR_LOG_FILE"
+        echo "" >> "$ERROR_LOG_FILE"
+
+        echo "Error details:"
+        cat "$API_INTEGRATION_TEMP_LOG" | sed 's/^/  /'
+
+        if $FAIL_FAST; then
+            rm -f "$API_INTEGRATION_TEMP_LOG"
+            echo ""
+            echo "========================================="
+            echo "FAIL-FAST MODE: Stopping batch import"
+            echo "========================================="
+            echo "Failed during: API Integration Analysis"
+            echo "Error log: $ERROR_LOG_FILE"
+            echo ""
+            exit 1
+        fi
+    fi
+    rm -f "$API_INTEGRATION_TEMP_LOG"
+    echo ""
+
+    # 7e. Build layout object quality analysis
+    echo "========================================="
+    echo "Building layout object quality analysis..."
+    echo "========================================="
+
+    LAYOUT_QUALITY_TEMP_LOG=$(mktemp)
+    if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_layout_object_quality_analysis.sql") > "$LAYOUT_QUALITY_TEMP_LOG" 2>&1; then
+        echo "✓ Layout object quality analysis built successfully"
+    else
+        echo "✗ WARNING: Layout object quality analysis failed"
+
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        echo "ERROR: Layout Object Quality Analysis" >> "$ERROR_LOG_FILE"
+        echo "Time: $(date '+%Y-%m-%d %H:%M:%S')" >> "$ERROR_LOG_FILE"
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        cat "$LAYOUT_QUALITY_TEMP_LOG" >> "$ERROR_LOG_FILE"
+        echo "" >> "$ERROR_LOG_FILE"
+
+        echo "Error details:"
+        cat "$LAYOUT_QUALITY_TEMP_LOG" | sed 's/^/  /'
+
+        if $FAIL_FAST; then
+            rm -f "$LAYOUT_QUALITY_TEMP_LOG"
+            echo ""
+            echo "========================================="
+            echo "FAIL-FAST MODE: Stopping batch import"
+            echo "========================================="
+            echo "Failed during: Layout Object Quality Analysis"
+            echo "Error log: $ERROR_LOG_FILE"
+            echo ""
+            exit 1
+        fi
+    fi
+    rm -f "$LAYOUT_QUALITY_TEMP_LOG"
+    echo ""
+
+    # 7e. Build quality and risk analysis
+    echo "========================================="
+    echo "Building quality and risk analysis..."
+    echo "========================================="
+
+    QUALITY_TEMP_LOG=$(mktemp)
+    if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_quality_analysis.sql") > "$QUALITY_TEMP_LOG" 2>&1; then
+        echo "✓ Quality and risk analysis built successfully"
+    else
+        echo "✗ WARNING: Quality and risk analysis failed"
+
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        echo "ERROR: Quality and Risk Analysis" >> "$ERROR_LOG_FILE"
+        echo "Time: $(date '+%Y-%m-%d %H:%M:%S')" >> "$ERROR_LOG_FILE"
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        cat "$QUALITY_TEMP_LOG" >> "$ERROR_LOG_FILE"
+        echo "" >> "$ERROR_LOG_FILE"
+
+        echo "Error details:"
+        cat "$QUALITY_TEMP_LOG" | sed 's/^/  /'
+
+        if $FAIL_FAST; then
+            rm -f "$QUALITY_TEMP_LOG"
+            echo ""
+            echo "========================================="
+            echo "FAIL-FAST MODE: Stopping batch import"
+            echo "========================================="
+            echo "Failed during: Quality and Risk Analysis"
+            echo "Error log: $ERROR_LOG_FILE"
+            echo ""
+            exit 1
+        fi
+    fi
+    rm -f "$QUALITY_TEMP_LOG"
+    echo ""
+
+    # 7f. Build localization labels
+    echo "========================================="
+    echo "Building localization labels..."
+    echo "========================================="
+
+    LOCALIZATION_TEMP_LOG=$(mktemp)
+    if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_localization_labels.sql") > "$LOCALIZATION_TEMP_LOG" 2>&1; then
+        echo "✓ Localization labels built successfully"
+    else
+        echo "✗ WARNING: Localization labels failed"
+
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        echo "ERROR: Localization Labels" >> "$ERROR_LOG_FILE"
+        echo "Time: $(date '+%Y-%m-%d %H:%M:%S')" >> "$ERROR_LOG_FILE"
+        echo "================================================================================" >> "$ERROR_LOG_FILE"
+        cat "$LOCALIZATION_TEMP_LOG" >> "$ERROR_LOG_FILE"
+        echo "" >> "$ERROR_LOG_FILE"
+
+        echo "Error details:"
+        cat "$LOCALIZATION_TEMP_LOG" | sed 's/^/  /'
+
+        if $FAIL_FAST; then
+            rm -f "$LOCALIZATION_TEMP_LOG"
+            echo ""
+            echo "========================================="
+            echo "FAIL-FAST MODE: Stopping batch import"
+            echo "========================================="
+            echo "Failed during: Localization Labels"
+            echo "Error log: $ERROR_LOG_FILE"
+            echo ""
+            exit 1
+        fi
+    fi
+    rm -f "$LOCALIZATION_TEMP_LOG"
+    echo ""
+
+    # 7g. Build resolution tables (ObjectHomes + TableOccurrenceResolution)
     # PRD prd_rest_api_token_extended_infos.md §5.1: datei-übergreifende
     # Resolutions werden nach allen Imports einmalig neu aufgebaut.
     echo "========================================="
@@ -754,7 +1012,7 @@ EOF
     rm -f "$RESOLUTION_TEMP_LOG"
     echo ""
 
-    # 7b. Sync to rest-api/db/ (Produktionsmodus, nur wenn keine Fehler)
+    # 7g. Sync to rest-api/db/ (Produktionsmodus, nur wenn keine Fehler)
     if ! $TEST_MODE && [ ${#FAILED_FILES[@]} -eq 0 ]; then
         echo "========================================="
         echo "Syncing database to rest-api/..."
@@ -861,6 +1119,62 @@ elif [[ "$MODE" == "single" ]]; then
             echo "✓ Resolution tables built"
         else
             echo "✗ WARNING: Resolution tables failed (run universal_catalogs first?)"
+        fi
+
+        echo ""
+        echo "Building table occurrence usage analysis..."
+        if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_table_occurrence_usage_analysis.sql") > /dev/null 2>&1; then
+            echo "✓ Table occurrence usage analysis built"
+        else
+            echo "✗ WARNING: Table occurrence usage analysis failed"
+        fi
+
+        echo ""
+        echo "Building object usage analysis..."
+        if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_object_usage_analysis.sql") > /dev/null 2>&1; then
+            echo "✓ Object usage analysis built"
+        else
+            echo "✗ WARNING: Object usage analysis failed"
+        fi
+
+        echo ""
+        echo "Building credential analysis..."
+        if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_credential_analysis.sql") > /dev/null 2>&1; then
+            echo "✓ Credential analysis built"
+        else
+            echo "✗ WARNING: Credential analysis failed"
+        fi
+
+        echo ""
+        echo "Building API integration analysis..."
+        if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_api_integration_analysis.sql") > /dev/null 2>&1; then
+            echo "✓ API integration analysis built"
+        else
+            echo "✗ WARNING: API integration analysis failed"
+        fi
+
+        echo ""
+        echo "Building layout object quality analysis..."
+        if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_layout_object_quality_analysis.sql") > /dev/null 2>&1; then
+            echo "✓ Layout object quality analysis built"
+        else
+            echo "✗ WARNING: Layout object quality analysis failed"
+        fi
+
+        echo ""
+        echo "Building quality and risk analysis..."
+        if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_quality_analysis.sql") > /dev/null 2>&1; then
+            echo "✓ Quality and risk analysis built"
+        else
+            echo "✗ WARNING: Quality and risk analysis failed"
+        fi
+
+        echo ""
+        echo "Building localization labels..."
+        if (cd "$PROJECT_ROOT" && "$DUCKDB_BIN" "$DB_FILE" < "$PROJECT_ROOT/sql/create_localization_labels.sql") > /dev/null 2>&1; then
+            echo "✓ Localization labels built"
+        else
+            echo "✗ WARNING: Localization labels failed"
         fi
 
         # Sync-Hook auch im Single-Mode (Produktionsmodus).

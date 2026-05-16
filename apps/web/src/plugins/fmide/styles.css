@@ -32,23 +32,40 @@
 .fmide-quick-action {
   display: inline-flex;
   align-items: center;
+  gap: 0.25rem;
   justify-content: center;
-  background: transparent;
-  border: none;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
   cursor: pointer;
-  padding: 0.1rem 0.25rem;
-  font-size: 0.9rem;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 600;
   line-height: 1;
-  border-radius: 3px;
+  border-radius: 4px;
   opacity: 0;
-  transition: opacity 0.15s, background-color 0.15s;
+  transform: translateX(2px);
+  transition: opacity 0.15s, transform 0.15s, background-color 0.15s, color 0.15s, border-color 0.15s;
   flex-shrink: 0;
 }
 
-.object-list-item:hover .fmide-quick-action {
+.object-list-item:hover .fmide-quick-action,
+.object-list-item:focus-within .fmide-quick-action {
   opacity: 1;
+  transform: translateX(0);
 }
 
 .fmide-quick-action:hover {
-  background-color: var(--color-hover-bg);
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-soft-bg);
+  color: var(--color-accent-soft-fg);
+}
+
+.fmide-quick-action-icon {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.fmide-quick-action-label {
+  line-height: 1;
 }

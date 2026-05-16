@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { ScriptLineToken } from '../script/types';
 import { buildObjectPath } from '../lib/navigation';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 interface ScriptStepSpanProps {
   /** Stepname-Text wie er im Script-Text erscheint (z.B. "Adjust Window"). */
@@ -24,6 +25,7 @@ export const ScriptStepSpan: React.FC<ScriptStepSpanProps> = ({ text, line }) =>
   const hoverTimer = useRef<number | null>(null);
   const isEnriched = !!line.stepDisplayName;
   const { uuid: currentScriptUuid } = useParams<{ uuid: string }>();
+  const language = getUiLanguage();
 
   // Cross-Navigation: Klick auf den Step-Namen führt zur ScriptStepType-
   // Detail-Seite (PRD prd_pseudo_object_types_filter.md §1.1). Hover-Popover
@@ -60,7 +62,9 @@ export const ScriptStepSpan: React.FC<ScriptStepSpanProps> = ({ text, line }) =>
     <Link
       to={stepTypePath}
       className="fm-stepname-link"
-      title={isEnriched ? `Zu Pseudo-Objekt navigieren: ScriptStepType '${line.stepName ?? text}'` : `${text} (zur Pseudo-Objekt-Detailseite)`}
+      title={isEnriched
+        ? tx(language, `Zu Pseudo-Objekt navigieren: ScriptStepType '${line.stepName ?? text}'`, `Navigate to pseudo object: ScriptStepType '${line.stepName ?? text}'`)
+        : tx(language, `${text} (zur Pseudo-Objekt-Detailseite)`, `${text} (to pseudo object detail page)`)}
       // Klick auf den Link soll das Popover sofort schließen.
       onClick={() => setOpen(false)}
     >
@@ -104,7 +108,9 @@ export const ScriptStepSpan: React.FC<ScriptStepSpanProps> = ({ text, line }) =>
               target="_blank"
               rel="noopener noreferrer"
             >
-              {line.stepLocalHelpUrl ? 'Lokale Hilfe öffnen ↗' : 'Claris-Hilfe öffnen ↗'}
+              {line.stepLocalHelpUrl
+                ? tx(language, 'Lokale Hilfe öffnen ↗', 'Open local help ↗')
+                : tx(language, 'Claris-Hilfe öffnen ↗', 'Open Claris help ↗')}
             </a>
           )}
         </span>

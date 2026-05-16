@@ -2,6 +2,7 @@ const morgan = require('morgan');
 const fs = require('fs');
 const path = require('path');
 const environment = require('../config/environment');
+const appLogger = require('../utils/app-logger');
 
 /**
  * HTTP Request Logger using Morgan
@@ -43,6 +44,9 @@ const logger = morgan(logFormat, {
 
 // Console logger for development
 const consoleLogger = morgan('dev', {
+  stream: {
+    write: (line) => appLogger.info(line.trim(), { scope: 'http' }),
+  },
   skip: (req) => environment.nodeEnv === 'test',
 });
 

@@ -100,6 +100,28 @@ const schemas = {
     debug: Joi.boolean().default(false),
   }),
 
+  // GET /api/search/scripts - Search inside FileMaker script steps, parameters and references.
+  scriptSearch: Joi.object({
+    q: Joi.string().required(),
+    file: Joi.string().optional(),
+    folders: Joi.string().allow('').optional(),
+    limit: Joi.number().integer().min(0).max(environment.api.maxLimit).default(environment.api.defaultLimit),
+    offset: Joi.number().integer().min(0).default(0),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/search/scripts/count
+  scriptSearchCount: Joi.object({
+    q: Joi.string().required(),
+    file: Joi.string().optional(),
+    folders: Joi.string().allow('').optional(),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
   // GET /api/references
   references: Joi.object({
     uuid: Joi.string().required(),
@@ -117,6 +139,193 @@ const schemas = {
     destination: Joi.string().required(),
     origin: Joi.string().required(),
     mode: Joi.string().lowercase().valid('uuid', 'name', 'auto').default('auto'),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/table-occurrences/usage
+  tableOccurrenceUsage: Joi.object({
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    unused_only: Joi.boolean().default(false),
+    limit: Joi.number().integer().min(0).max(environment.api.maxLimit).default(environment.api.defaultLimit),
+    offset: Joi.number().integer().min(0).default(0),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/table-occurrences/usage/count
+  tableOccurrenceUsageCount: Joi.object({
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    unused_only: Joi.boolean().default(false),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/objects/usage
+  objectUsage: Joi.object({
+    type: Joi.string().optional(),
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    unused_only: Joi.boolean().default(false),
+    max_usage: Joi.number().integer().min(0).optional(),
+    sort: Joi.string().lowercase().valid('rare', 'usage', 'name').default('rare'),
+    limit: Joi.number().integer().min(0).max(environment.api.maxLimit).default(environment.api.defaultLimit),
+    offset: Joi.number().integer().min(0).default(0),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/objects/usage/count
+  objectUsageCount: Joi.object({
+    type: Joi.string().optional(),
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    unused_only: Joi.boolean().default(false),
+    max_usage: Joi.number().integer().min(0).optional(),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/credentials
+  credentialFindings: Joi.object({
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    category: Joi.string().valid('SMTP', 'API/cURL', 'FileMaker Account', 'External Data Source', 'Script-Hinweis').optional(),
+    risk: Joi.string().lowercase().valid('high', 'medium', 'info').optional(),
+    secret_only: Joi.boolean().default(false),
+    limit: Joi.number().integer().min(0).max(environment.api.maxLimit).default(environment.api.defaultLimit),
+    offset: Joi.number().integer().min(0).default(0),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/credentials/count
+  credentialFindingsCount: Joi.object({
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    category: Joi.string().valid('SMTP', 'API/cURL', 'FileMaker Account', 'External Data Source', 'Script-Hinweis').optional(),
+    risk: Joi.string().lowercase().valid('high', 'medium', 'info').optional(),
+    secret_only: Joi.boolean().default(false),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/api-integrations
+  apiIntegrations: Joi.object({
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    family: Joi.string().allow('').optional(),
+    type: Joi.string().valid('API', 'External Database').optional(),
+    risk: Joi.string().lowercase().valid('high', 'medium', 'info').optional(),
+    secret_only: Joi.boolean().default(false),
+    limit: Joi.number().integer().min(0).max(environment.api.maxLimit).default(environment.api.defaultLimit),
+    offset: Joi.number().integer().min(0).default(0),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/api-integrations/count
+  apiIntegrationsCount: Joi.object({
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    family: Joi.string().allow('').optional(),
+    type: Joi.string().valid('API', 'External Database').optional(),
+    risk: Joi.string().lowercase().valid('high', 'medium', 'info').optional(),
+    secret_only: Joi.boolean().default(false),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/api-integrations/summary
+  apiIntegrationSummary: Joi.object({
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    family: Joi.string().allow('').optional(),
+    type: Joi.string().valid('API', 'External Database').optional(),
+    risk: Joi.string().lowercase().valid('high', 'medium', 'info').optional(),
+    secret_only: Joi.boolean().default(false),
+    limit: Joi.number().integer().min(0).max(environment.api.maxLimit).default(environment.api.defaultLimit),
+    offset: Joi.number().integer().min(0).default(0),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/layout-objects/quality
+  layoutObjectQuality: Joi.object({
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    category: Joi.string().allow('').optional(),
+    severity: Joi.string().lowercase().valid('high', 'medium', 'info').optional(),
+    limit: Joi.number().integer().min(0).max(environment.api.maxLimit).default(environment.api.defaultLimit),
+    offset: Joi.number().integer().min(0).default(0),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/layout-objects/quality/count
+  layoutObjectQualityCount: Joi.object({
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    category: Joi.string().allow('').optional(),
+    severity: Joi.string().lowercase().valid('high', 'medium', 'info').optional(),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/quality
+  qualityFindings: Joi.object({
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    area: Joi.string().allow('').optional(),
+    category: Joi.string().allow('').optional(),
+    severity: Joi.string().lowercase().valid('high', 'medium', 'info').optional(),
+    type: Joi.string().allow('').optional(),
+    limit: Joi.number().integer().min(0).max(environment.api.maxLimit).default(environment.api.defaultLimit),
+    offset: Joi.number().integer().min(0).default(0),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/quality/count
+  qualityFindingsCount: Joi.object({
+    q: Joi.string().allow('').optional(),
+    file: Joi.string().optional(),
+    area: Joi.string().allow('').optional(),
+    category: Joi.string().allow('').optional(),
+    severity: Joi.string().lowercase().valid('high', 'medium', 'info').optional(),
+    type: Joi.string().allow('').optional(),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/analysis/quality/dashboard
+  qualityDashboard: Joi.object({
+    file: Joi.string().optional(),
+    format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
+    meta: Joi.boolean().default(false),
+    debug: Joi.boolean().default(false),
+  }),
+
+  // GET /api/localization/labels
+  localizationLabels: Joi.object({
+    domain: Joi.string().allow('').optional(),
+    language: Joi.string().lowercase().valid('de', 'en').optional(),
     format: Joi.string().lowercase().valid(...Object.values(OUTPUT_FORMATS)).default('json'),
     meta: Joi.boolean().default(false),
     debug: Joi.boolean().default(false),

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 /**
  * Filter-Toolbar für Pseudo-Token-Listen (PRD prd_pseudo_object_types_filter.md §8.2).
@@ -52,6 +53,7 @@ export const PseudoTokenFilterToolbar: React.FC<Props> = ({
   categoryLabel,
 }) => {
   const [expanded, setExpanded] = useState(false);
+  const language = getUiLanguage();
 
   // Pillen-Sortierung: aktiv → nach total_usage desc; Pseudo-NULL ("Sonstige") ganz hinten
   const sortedCategories = [...categories].sort((a, b) => {
@@ -70,26 +72,26 @@ export const PseudoTokenFilterToolbar: React.FC<Props> = ({
     <div className="pseudo-token-toolbar">
       <div className="pseudo-token-toolbar-row1">
         <div className="pseudo-token-toolbar-search">
-          <label htmlFor="pseudo-token-search-input">Suchen:</label>
+          <label htmlFor="pseudo-token-search-input">{tx(language, 'Suchen:', 'Search:')}</label>
           <input
             id="pseudo-token-search-input"
             type="text"
             value={searchText}
             onChange={(e) => onSearchTextChange(e.target.value)}
-            placeholder="Token-Name filtern…"
+            placeholder={tx(language, 'Token-Name filtern...', 'Filter token name...')}
           />
           <span className="pseudo-token-count">
             {filteredCount} / {totalCount}
           </span>
         </div>
         <div className="pseudo-token-toolbar-sort">
-          <label htmlFor="pseudo-token-sort-select">Sortierung:</label>
+          <label htmlFor="pseudo-token-sort-select">{tx(language, 'Sortierung:', 'Sort:')}</label>
           <select
             id="pseudo-token-sort-select"
             value={sort}
             onChange={(e) => onSortChange(e.target.value as SortMode)}
           >
-            <option value="usage">↓ Häufigkeit</option>
+            <option value="usage">↓ {tx(language, 'Häufigkeit', 'Usage')}</option>
             <option value="name">A → Z</option>
             <option value="category">{categoryLabel}</option>
           </select>
@@ -103,7 +105,7 @@ export const PseudoTokenFilterToolbar: React.FC<Props> = ({
           </span>
           <div className="pseudo-token-toolbar-pills">
             {visibleCategories.map((c) => {
-              const label = c.category ?? 'Sonstige';
+              const label = c.category ?? tx(language, 'Sonstige', 'Other');
               const active = c.category != null && activeSet.has(c.category);
               return (
                 <button
@@ -117,8 +119,8 @@ export const PseudoTokenFilterToolbar: React.FC<Props> = ({
                   disabled={c.category == null}
                   title={
                     c.category == null
-                      ? 'Tokens ohne Kategorie (nicht filterbar)'
-                      : `${label} — ${c.token_count} Tokens, ${c.total_usage} Verwendungen`
+                      ? tx(language, 'Tokens ohne Kategorie (nicht filterbar)', 'Tokens without category (not filterable)')
+                      : tx(language, `${label} - ${c.token_count} Tokens, ${c.total_usage} Verwendungen`, `${label} - ${c.token_count} tokens, ${c.total_usage} uses`)
                   }
                 >
                   {label} ({c.token_count})
@@ -131,7 +133,7 @@ export const PseudoTokenFilterToolbar: React.FC<Props> = ({
                 className="pseudo-token-pill pseudo-token-pill-toggle"
                 onClick={() => setExpanded((e) => !e)}
               >
-                {expanded ? 'Weniger ▴' : `Details ▾ (${sortedCategories.length - VISIBLE_THRESHOLD})`}
+                {expanded ? tx(language, 'Weniger ▴', 'Less ▴') : tx(language, `Details ▾ (${sortedCategories.length - VISIBLE_THRESHOLD})`, `Details ▾ (${sortedCategories.length - VISIBLE_THRESHOLD})`)}
               </button>
             )}
             {activeCategories.length > 0 && (
@@ -140,7 +142,7 @@ export const PseudoTokenFilterToolbar: React.FC<Props> = ({
                 className="pseudo-token-pill pseudo-token-pill-clear"
                 onClick={onClearCategories}
               >
-                Filter zurücksetzen
+                {tx(language, 'Filter zurücksetzen', 'Reset filter')}
               </button>
             )}
           </div>

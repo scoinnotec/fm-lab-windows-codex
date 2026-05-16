@@ -10,6 +10,7 @@ interface UseInfiniteSearchOptions {
   searchName: string;
   selectedFile: string;
   objectType: string;
+  enabled?: boolean;
 }
 
 interface UseInfiniteSearchResult {
@@ -45,6 +46,7 @@ export const useInfiniteSearch = ({
   searchName,
   selectedFile,
   objectType,
+  enabled = true,
 }: UseInfiniteSearchOptions): UseInfiniteSearchResult => {
   const [items, setItems] = useState<FMObject[]>([]);
   const [offset, setOffset] = useState(0);
@@ -83,8 +85,13 @@ export const useInfiniteSearch = ({
     setItems([]);
     setOffset(0);
     setError(null);
-    setLoading(true);
+    setTotalCount(enabled ? null : 0);
+    setLoading(enabled);
     isFetchingRef.current = false;
+
+    if (!enabled) {
+      return;
+    }
 
     try {
       const searchParams = buildSearchParams(0);
@@ -126,14 +133,14 @@ export const useInfiniteSearch = ({
     } finally {
       setLoading(false);
     }
-  }, [buildSearchParams]);
+  }, [buildSearchParams, enabled]);
 
   /**
    * Load more items (next chunk)
    */
   const loadMore = useCallback(async () => {
     // Guard clauses
-    if (isFetchingRef.current || loadingMore || loading) {
+    if (!enabled || isFetchingRef.current || loadingMore || loading) {
       return;
     }
 
@@ -164,7 +171,7 @@ export const useInfiniteSearch = ({
       isFetchingRef.current = false;
       setLoadingMore(false);
     }
-  }, [buildSearchParams, offset, items.length, totalCount, loadingMore, loading]);
+  }, [buildSearchParams, offset, items.length, totalCount, loadingMore, loading, enabled]);
 
   /**
    * Reset when search params change

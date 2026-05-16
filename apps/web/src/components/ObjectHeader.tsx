@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { FMObject } from '../types';
 import { Slot } from '../plugins';
+import { getUiLanguage, objectTypeLabel, tx } from '../lib/uiLanguage';
 
 interface ObjectHeaderProps {
   object: FMObject;
@@ -28,6 +29,7 @@ function displayObjectType(objectType: string, sourceTable?: string | null): str
  */
 export const ObjectHeader: React.FC<ObjectHeaderProps> = ({ object }) => {
   const [copied, setCopied] = useState(false);
+  const language = getUiLanguage();
 
   const handleCopyUUID = async () => {
     try {
@@ -46,7 +48,7 @@ export const ObjectHeader: React.FC<ObjectHeaderProps> = ({ object }) => {
       </div>
       <div className="detail-title-row">
         <h1 id="object-title" className="detail-title">
-          {object.Object_Name || '(ohne Namen)'}
+          {object.Object_Name || tx(language, '(ohne Namen)', '(without name)')}
         </h1>
         <Slot
           name="objectHeaderActions"
@@ -57,19 +59,19 @@ export const ObjectHeader: React.FC<ObjectHeaderProps> = ({ object }) => {
         />
       </div>
       <div className="detail-meta">
-        <span className="object-type">{displayObjectType(object.Object_Type, object.Source_Table)}</span>
+        <span className="object-type">{objectTypeLabel(displayObjectType(object.Object_Type, object.Source_Table), language)}</span>
         {object.Source_Table && (
           <span className="detail-source">
-            Quelle: {object.Source_Table}
+            {tx(language, 'Quelle', 'Source')}: {object.Source_Table}
           </span>
         )}
         {object.Object_Type === 'TableOccurrence' && object.File_Name && (
           <Link
             to={`/relationship-graph/${encodeURIComponent(object.File_Name)}?to=${encodeURIComponent(object.Object_UUID)}`}
             className="detail-rg-link"
-            title="Im Beziehungsdiagramm der Datei anzeigen"
+            title={tx(language, 'Im Beziehungsdiagramm der Datei anzeigen', 'Show in the file relationship graph')}
           >
-            ↗ Beziehungsdiagramm
+            ↗ {tx(language, 'Beziehungsdiagramm', 'Relationship graph')}
           </Link>
         )}
       </div>
@@ -80,8 +82,8 @@ export const ObjectHeader: React.FC<ObjectHeaderProps> = ({ object }) => {
         <button
           onClick={handleCopyUUID}
           className={`copy-button${copied ? ' copied' : ''}`}
-          aria-label="UUID in Zwischenablage kopieren"
-          title="UUID kopieren"
+          aria-label={tx(language, 'UUID in Zwischenablage kopieren', 'Copy UUID to clipboard')}
+          title={tx(language, 'UUID kopieren', 'Copy UUID')}
         >
           {copied ? (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

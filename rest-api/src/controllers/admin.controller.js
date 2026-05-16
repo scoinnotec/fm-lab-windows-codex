@@ -4,6 +4,7 @@ const { buildSuccess } = require('../utils/response-builder');
 const referenceService = require('../services/reference.service');
 const helpService = require('../services/help.service');
 const templateService = require('../services/template.service');
+const appLogger = require('../utils/app-logger');
 
 /**
  * Admin Controller
@@ -39,7 +40,7 @@ async function reload(req, res, next) {
       });
     }
 
-    console.log('Admin reload requested - re-opening DuckDB connection');
+    appLogger.info('Admin reload requested');
     const result = await db.reload();
     // Reference-, Help- und Template-Caches verwerfen, damit der nächste Request
     // frische Daten aus der neu attached'eten Reference-DB, dem Mirror und den
@@ -47,7 +48,7 @@ async function reload(req, res, next) {
     referenceService.clearCaches();
     helpService.clearCache();
     templateService.clearCache();
-    console.log(`Admin reload complete: ${result.tables} tables from ${result.path}`);
+    appLogger.info('Admin reload complete', { tables: result.tables, path: result.path });
 
     res.json(buildSuccess({
       status: result.status,
@@ -56,7 +57,7 @@ async function reload(req, res, next) {
       timestamp: new Date().toISOString(),
     }));
   } catch (error) {
-    console.error('Admin reload failed:', error);
+    appLogger.error('Admin reload failed', { error });
     next(error);
   }
 }

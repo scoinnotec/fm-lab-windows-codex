@@ -5,6 +5,7 @@ import cytoscape from 'cytoscape';
 import dagre from 'cytoscape-dagre';
 import type { FMObject, GroupedReferences } from '../types';
 import { buildNavigablePath } from '../lib/navigation';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 // Register dagre layout
 cytoscape.use(dagre);
@@ -131,6 +132,7 @@ const cytoscapeStyles: cytoscape.StylesheetStyle[] = [
  * - Drag on node moves it, drag on background pans, scroll zooms
  */
 export const DependencyGraph: React.FC<DependencyGraphProps> = ({ object, references }) => {
+  const language = getUiLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
   const navigate = useNavigate();
@@ -313,7 +315,7 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({ object, refere
   if (references.parent.length === 0 && references.child.length === 0) {
     return (
       <div className="tab-placeholder" role="status">
-        <p>Keine Abhängigkeiten vorhanden</p>
+        <p>{tx(language, 'Keine Abhängigkeiten vorhanden', 'No dependencies available')}</p>
       </div>
     );
   }
@@ -324,34 +326,34 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({ object, refere
         <button
           className="graph-control-button"
           onClick={handleFit}
-          title="Gesamten Graph einpassen"
-          aria-label="Graph einpassen"
+          title={tx(language, 'Gesamten Graph einpassen', 'Fit entire graph')}
+          aria-label={tx(language, 'Graph einpassen', 'Fit graph')}
         >
           Fit
         </button>
         <button
           className="graph-control-button"
           onClick={handleResetLayout}
-          title="Layout zurücksetzen"
-          aria-label="Layout zurücksetzen"
+          title={tx(language, 'Layout zurücksetzen', 'Reset layout')}
+          aria-label={tx(language, 'Layout zurücksetzen', 'Reset layout')}
         >
           Reset
         </button>
       </div>
       <div className="graph-legend">
         <span className="legend-item">
-          <span className="legend-dot" style={{ background: '#646cff' }} /> Aktuelles Objekt
+          <span className="legend-dot" style={{ background: '#646cff' }} /> {tx(language, 'Aktuelles Objekt', 'Current object')}
         </span>
         <span className="legend-item">
           <span className="legend-dot legend-dot-dashed" style={{ borderColor: '#ff9800' }} /> Cross-File
         </span>
-        <span className="legend-hint">Klick = Graph-Navigation | {navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl'}+Klick = Details | Ziehen = Verschieben</span>
+        <span className="legend-hint">{tx(language, 'Klick = Graph-Navigation', 'Click = graph navigation')} | {navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl'}+{tx(language, 'Klick = Details', 'click = details')} | {tx(language, 'Ziehen = Verschieben', 'drag = move')}</span>
       </div>
       <div
         ref={containerRef}
         className="dependency-graph-container"
         role="img"
-        aria-label={`Dependency Graph für ${object.Object_Name}`}
+        aria-label={tx(language, `Dependency Graph für ${object.Object_Name}`, `Dependency graph for ${object.Object_Name}`)}
       />
     </div>
   );

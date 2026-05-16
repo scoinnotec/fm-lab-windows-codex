@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import type { FieldTokens } from '../script/calcTokens';
 import { HighlightRefContext } from '../script/highlightContext';
 import { CalcTokenSpan } from './CalcTokenSpan';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 import './CustomFunctionViewer.css';
 import './FieldViewer.css';
 
@@ -22,6 +23,7 @@ interface FieldViewerProps {
  * bekommen ihre jeweilige Highlight-Klasse.
  */
 export const FieldViewer: React.FC<FieldViewerProps> = ({ data, highlightRefUuids }) => {
+  const language = getUiLanguage();
   const rootRef = useRef<HTMLDivElement>(null);
   const highlightSig = highlightRefUuids ? Array.from(highlightRefUuids).sort().join(',') : '';
   useEffect(() => {
@@ -36,12 +38,12 @@ export const FieldViewer: React.FC<FieldViewerProps> = ({ data, highlightRefUuid
   const field = data.field;
   const hasFormula = data.tokens && data.tokens.length > 0;
   const formulaLabel = field?.autoEnterType === 'Calculated'
-    ? 'Auto-Enter Calculation'
-    : 'Calculation Formula';
+    ? tx(language, 'Auto-Enter-Berechnung', 'Auto-enter calculation')
+    : tx(language, 'Berechnungsformel', 'Calculation formula');
 
   return (
     <HighlightRefContext.Provider value={highlightRefUuids ?? null}>
-      <div ref={rootRef} className="fm-customfunction fm-field" aria-label="Feld-Details">
+      <div ref={rootRef} className="fm-customfunction fm-field" aria-label={tx(language, 'Feld-Details', 'Field details')}>
         <div className="fm-customfunction-header">
           <h2 className="type-detail-heading">
             {field?.table && (
@@ -54,19 +56,19 @@ export const FieldViewer: React.FC<FieldViewerProps> = ({ data, highlightRefUuid
 
         {field && (
           <dl className="fm-field-props">
-            <dt>Field Type</dt>
+            <dt>{tx(language, 'Feldtyp', 'Field type')}</dt>
             <dd>{field.fieldType ?? '-'}</dd>
-            <dt>Data Type</dt>
+            <dt>{tx(language, 'Datentyp', 'Data type')}</dt>
             <dd>{field.dataType ?? '-'}</dd>
             {field.isGlobal && (
               <>
                 <dt>Global</dt>
-                <dd>Yes</dd>
+                <dd>{tx(language, 'Ja', 'Yes')}</dd>
               </>
             )}
             {field.maxRepetitions > 1 && (
               <>
-                <dt>Repetitions</dt>
+                <dt>{tx(language, 'Wiederholungen', 'Repetitions')}</dt>
                 <dd>{field.maxRepetitions}</dd>
               </>
             )}
@@ -78,7 +80,7 @@ export const FieldViewer: React.FC<FieldViewerProps> = ({ data, highlightRefUuid
             )}
             {field.comment && (
               <>
-                <dt>Comment</dt>
+                <dt>{tx(language, 'Kommentar', 'Comment')}</dt>
                 <dd className="fm-field-comment">{field.comment}</dd>
               </>
             )}

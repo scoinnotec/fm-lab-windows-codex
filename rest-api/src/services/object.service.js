@@ -389,6 +389,407 @@ async function countSearchResults(searchOptions) {
   }
 }
 
+function normalizeScriptSearchTerm(q) {
+  const raw = String(q || '').trim();
+  const searchableChars = raw.replace(/\*/g, '').trim();
+
+  if (searchableChars.length < 2) {
+    return { raw, pattern: null };
+  }
+
+  const escaped = raw.split('*').map(escapeLikeLiteral).join('%');
+  const pattern = raw.includes('*') ? escaped : `%${escaped}%`;
+
+  return { raw, pattern };
+}
+
+function escapeLikeLiteral(value) {
+  return value.replace(/[!%_]/g, (char) => `!${char}`);
+}
+
+function normalizeFolderUuids(folderUuids) {
+  if (!folderUuids) return [];
+  if (Array.isArray(folderUuids)) {
+    return folderUuids.map(String).map(v => v.trim()).filter(Boolean);
+  }
+  return String(folderUuids)
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean);
+}
+
+function buildScriptContentWhere({ file, pattern, folderUuids }) {
+  const conditions = [];
+  const params = [];
+
+  if (file) {
+    conditions.push('s.File_Name = ?');
+    params.push(file);
+  }
+
+  const folders = normalizeFolderUuids(folderUuids);
+  if (folders.length > 0) {
+    const placeholders = folders.map(() => '(?)').join(', ');
+    conditions.push(`
+      (s.Script_UUID, s.File_Name) IN (
+        WITH RECURSIVE
+        selected_folders(folder_uuid) AS (
+          VALUES ${placeholders}
+        ),
+        folder_descendants(folder_uuid) AS (
+          SELECT folder_uuid FROM selected_folders
+          UNION
+          SELECT fh.Source_UUID
+          FROM FolderHierarchy fh
+          JOIN folder_descendants fd
+            ON fh.Parent_Folder_UUID = fd.folder_uuid
+          WHERE fh.Source_Table = 'ScriptCatalog'
+            AND fh.subtype = 'Folder'
+        )
+        SELECT scoped.Source_UUID, scoped.File_Name
+        FROM FolderHierarchy scoped
+        WHERE scoped.Source_Table = 'ScriptCatalog'
+          AND scoped.subtype = 'Item'
+          AND scoped.Parent_Folder_UUID IN (SELECT folder_uuid FROM folder_descendants)
+      )
+    `);
+    params.push(...folders);
+  }
+
+  const searchConditions = [
+    "s.Step_Name ILIKE ? ESCAPE '!'",
+    "s.Variable_Name ILIKE ? ESCAPE '!'",
+    "s.Calculation_Text ILIKE ? ESCAPE '!'",
+    "s.Parameters_XML ILIKE ? ESCAPE '!'",
+    "d.Step_Text ILIKE ? ESCAPE '!'",
+    `EXISTS (
+      SELECT 1
+      FROM XMLStepReferences xsr
+      WHERE xsr.Step_UUID = s.Step_UUID
+        AND xsr.File_Name = s.File_Name
+        AND (
+          xsr.Ref_Name ILIKE ? ESCAPE '!'
+          OR xsr.TO_Name ILIKE ? ESCAPE '!'
+          OR xsr.Data_Source_Name ILIKE ? ESCAPE '!'
+        )
+    )`,
+    `EXISTS (
+      SELECT 1
+      FROM XMLCalcReferences xcr
+      WHERE xcr.Source_UUID = s.Script_UUID
+        AND xcr.Source_Type = 'Script'
+        AND xcr.File_Name = s.File_Name
+        AND TRY_CAST(xcr.Source_Subkey AS INTEGER) = s.Step_Index
+        AND (
+          xcr.Ref_Name ILIKE ? ESCAPE '!'
+          OR xcr.Ref_SubName ILIKE ? ESCAPE '!'
+          OR xcr.TO_Name ILIKE ? ESCAPE '!'
+        )
+    )`,
+  ];
+
+  conditions.push(`(${searchConditions.join('\n       OR ')})`);
+  params.push(
+    pattern, pattern, pattern, pattern, pattern,
+    pattern, pattern, pattern,
+    pattern, pattern, pattern
+  );
+
+  return {
+    sql: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '',
+    params,
+  };
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function fieldMatches(value, rawTerm) {
+  if (value == null) return false;
+  const haystack = String(value);
+  const term = String(rawTerm || '').trim();
+  if (!term) return false;
+
+  if (/\*/.test(term)) {
+    const regex = new RegExp(
+      escapeRegExp(term)
+        .replace(/\\\*/g, '.*'),
+      'i'
+    );
+    return regex.test(haystack);
+  }
+
+  return haystack.toLowerCase().includes(term.toLowerCase());
+}
+
+function decodeSearchEntities(text) {
+  return text
+    .replace(/&#x([0-9A-Fa-f]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+function normalizeSearchText(value, xmlish = false) {
+  if (value == null) return '';
+
+  let text = String(value)
+    .replace(/\x7F/g, '\n')
+    .replace(/\r\n|\r/g, '\n');
+
+  if (xmlish) {
+    text = text
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, ' $1 ')
+      .replace(/\b(?:name|value|type|id|UUID)="([^"]*)"/g, ' $1 ')
+      .replace(/<[^>]+>/g, ' ');
+  }
+
+  return decodeSearchEntities(text)
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildSnippet(value, rawTerm, xmlish = false) {
+  const normalized = normalizeSearchText(value, xmlish);
+  if (!normalized) return '';
+
+  const term = String(rawTerm || '').replace(/\*/g, '').trim();
+  const lower = normalized.toLowerCase();
+  const needle = term.toLowerCase();
+  const matchAt = needle ? lower.indexOf(needle) : -1;
+  const radius = 150;
+
+  if (matchAt < 0) {
+    return normalized.length > 320 ? `${normalized.slice(0, 320)}...` : normalized;
+  }
+
+  const start = Math.max(0, matchAt - radius);
+  const end = Math.min(normalized.length, matchAt + needle.length + radius);
+  return `${start > 0 ? '...' : ''}${normalized.slice(start, end)}${end < normalized.length ? '...' : ''}`;
+}
+
+function resolveScriptContentMatch(row, rawTerm) {
+  const fields = [
+    { field: 'Schritt', value: row.Step_Name },
+    { field: 'Scripttext', value: row.Step_Text },
+    { field: 'Variable', value: row.Variable_Name },
+    { field: 'Formel/Text', value: row.Calculation_Text },
+    { field: 'Direkte Referenz', value: row.Step_Refs },
+    { field: 'Formel-Referenz', value: row.Calc_Refs },
+    { field: 'Parameter/XML', value: row.Parameters_XML, xmlish: true },
+  ];
+
+  const match = fields.find(entry => fieldMatches(entry.value, rawTerm)) || fields.find(entry => entry.value != null);
+
+  return {
+    Match_Field: match?.field || 'Treffer',
+    Match_Text: normalizeSearchText(match?.value || '', !!match?.xmlish).slice(0, 500),
+    Snippet: buildSnippet(match?.value || '', rawTerm, !!match?.xmlish),
+  };
+}
+
+function previewText(value, maxLength = 420) {
+  const text = normalizeSearchText(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function buildScriptLinePreview(row, match) {
+  const baseText = previewText(row.Step_Text) || previewText(row.Step_Name);
+  const details = [];
+
+  if (row.Variable_Name) {
+    details.push(previewText(row.Variable_Name, 160));
+  }
+
+  if (row.Calculation_Text) {
+    details.push(previewText(row.Calculation_Text, 360));
+  }
+
+  if (match.Match_Field === 'Direkte Referenz' && row.Step_Refs) {
+    details.push(previewText(row.Step_Refs, 360));
+  }
+
+  if (match.Match_Field === 'Formel-Referenz' && row.Calc_Refs) {
+    details.push(previewText(row.Calc_Refs, 360));
+  }
+
+  if (match.Match_Field === 'Parameter/XML' && match.Snippet) {
+    details.push(previewText(match.Snippet, 420));
+  }
+
+  const parts = [baseText, ...details].filter(Boolean);
+  return parts.join(' · ');
+}
+
+function mapScriptSearchRows(rows, rawTerm) {
+  return convertBigInts(rows).map((row) => {
+    const match = resolveScriptContentMatch(row, rawTerm);
+    return {
+      Script_UUID: row.Script_UUID,
+      Script_Name: row.Script_Name,
+      Step_UUID: row.Step_UUID,
+      Step_Index: row.Step_Index,
+      Step_Number: row.Step_Number,
+      Step_Name: row.Step_Name,
+      File_Name: row.File_Name,
+      Script_Line_Text: buildScriptLinePreview(row, match),
+      ...match,
+    };
+  });
+}
+
+/**
+ * Search inside FileMaker scripts.
+ *
+ * The result is step-level: one row per matching script step. Search covers
+ * step names, generated DDR step text, variable names, calculation text,
+ * raw parameter XML/CDATA and direct/calculation references.
+ */
+async function searchScriptContents(searchOptions) {
+  try {
+    const { q, file, folderUuids, limit = environment.api.defaultLimit, offset = 0 } = searchOptions;
+    const { raw, pattern } = normalizeScriptSearchTerm(q);
+
+    if (!pattern) {
+      return {
+        data: [],
+        meta: { execution_time_ms: 0, result_count: 0, min_query_length: 2 },
+      };
+    }
+
+    const where = buildScriptContentWhere({ file, pattern, folderUuids });
+    let sql = `
+      WITH matched AS (
+        SELECT
+          s.Script_UUID,
+          s.Script_Name,
+          s.Step_UUID,
+          s.Step_Index,
+          s.Step_Index + 1 AS Step_Number,
+          s.Step_Name,
+          s.File_Name,
+          s.Variable_Name,
+          s.Calculation_Text,
+          s.Parameters_XML,
+          d.Step_Text
+        FROM StepsForScripts s
+        LEFT JOIN DDR_ScriptSteps d
+          ON d.Step_UUID = s.Step_UUID
+         AND d.File_Name = s.File_Name
+        ${where.sql}
+        ORDER BY lower(s.Script_Name), s.Step_Index
+    `;
+
+    const params = [...where.params];
+    if (limit > 0) {
+      sql += ' LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+    }
+
+    sql += `
+      ),
+      step_refs AS (
+        SELECT
+          xsr.Step_UUID,
+          xsr.File_Name,
+          string_agg(
+            DISTINCT concat_ws(' ', xsr.Ref_Type, xsr.Ref_Name, xsr.TO_Name, xsr.Data_Source_Name),
+            ' | '
+          ) AS Step_Refs
+        FROM XMLStepReferences xsr
+        JOIN matched m
+          ON m.Step_UUID = xsr.Step_UUID
+         AND m.File_Name = xsr.File_Name
+        GROUP BY xsr.Step_UUID, xsr.File_Name
+      ),
+      calc_refs AS (
+        SELECT
+          xcr.Source_UUID AS Script_UUID,
+          TRY_CAST(xcr.Source_Subkey AS INTEGER) AS Step_Index,
+          xcr.File_Name,
+          string_agg(
+            DISTINCT concat_ws(' ', xcr.Ref_Type, xcr.Ref_Name, xcr.Ref_SubName, xcr.TO_Name),
+            ' | '
+          ) AS Calc_Refs
+        FROM XMLCalcReferences xcr
+        JOIN matched m
+          ON m.Script_UUID = xcr.Source_UUID
+         AND m.Step_Index = TRY_CAST(xcr.Source_Subkey AS INTEGER)
+         AND m.File_Name = xcr.File_Name
+        WHERE xcr.Source_Type = 'Script'
+        GROUP BY xcr.Source_UUID, TRY_CAST(xcr.Source_Subkey AS INTEGER), xcr.File_Name
+      )
+      SELECT
+        m.*,
+        sr.Step_Refs,
+        cr.Calc_Refs
+      FROM matched m
+      LEFT JOIN step_refs sr
+        ON sr.Step_UUID = m.Step_UUID
+       AND sr.File_Name = m.File_Name
+      LEFT JOIN calc_refs cr
+        ON cr.Script_UUID = m.Script_UUID
+       AND cr.Step_Index = m.Step_Index
+       AND cr.File_Name = m.File_Name
+      ORDER BY lower(m.Script_Name), m.Step_Index
+    `;
+
+    const result = await db.executeQuery(sql, params);
+
+    return {
+      data: mapScriptSearchRows(result.rows, raw),
+      meta: result.meta,
+    };
+  } catch (error) {
+    if (error.code) throw error;
+    throw createError('DATABASE_ERROR', error.message, searchOptions);
+  }
+}
+
+/**
+ * Count script content search results.
+ */
+async function countScriptContentResults(searchOptions) {
+  try {
+    const { q, file, folderUuids } = searchOptions;
+    const { pattern } = normalizeScriptSearchTerm(q);
+
+    if (!pattern) {
+      return {
+        data: [{ count: 0 }],
+        meta: { execution_time_ms: 0, result_count: 1, min_query_length: 2 },
+      };
+    }
+
+    const where = buildScriptContentWhere({ file, pattern, folderUuids });
+    const sql = `
+      SELECT COUNT(*) AS count
+      FROM StepsForScripts s
+      LEFT JOIN DDR_ScriptSteps d
+        ON d.Step_UUID = s.Step_UUID
+       AND d.File_Name = s.File_Name
+      ${where.sql}
+    `;
+
+    const result = await db.executeQuery(sql, where.params);
+
+    return {
+      data: convertBigInts(result.rows),
+      meta: result.meta,
+    };
+  } catch (error) {
+    if (error.code) throw error;
+    throw createError('DATABASE_ERROR', error.message, searchOptions);
+  }
+}
+
 /**
  * Pseudo-Type Reference-Resolver.
  *
@@ -713,5 +1114,7 @@ module.exports = {
   countObjects,
   searchObjects,
   countSearchResults,
+  searchScriptContents,
+  countScriptContentResults,
   getReferences,
 };

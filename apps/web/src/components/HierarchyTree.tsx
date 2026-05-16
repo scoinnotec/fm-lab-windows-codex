@@ -4,6 +4,7 @@ import type { GroupedReferences, ReferenceItem } from '../types';
 import { ReferencesFilter } from './ReferencesFilter';
 import { useUrlState, stringSetCodec } from '../hooks/useUrlState';
 import { buildNavigablePath } from '../lib/navigation';
+import { getUiLanguage, objectTypeLabel, tx } from '../lib/uiLanguage';
 
 const EMPTY_TYPES = new Set<string>();
 
@@ -40,6 +41,7 @@ function buildSearchText(ref: ReferenceItem): string {
 export const HierarchyTree = forwardRef<HierarchyTreeHandle, HierarchyTreeProps>(({ references }, externalRef) => {
   const navigate = useNavigate();
   const { uuid: currentUuid } = useParams<{ uuid: string }>();
+  const language = getUiLanguage();
   // URL als Single Source of Truth — Stack erhält Such- und Filterstand
   // beim Zurück-Navigieren automatisch (Tab-Param 'tab' liegt in DetailView).
   //
@@ -221,10 +223,10 @@ export const HierarchyTree = forwardRef<HierarchyTreeHandle, HierarchyTreeProps>
       onKeyDown={(e) => handleItemKeyDown(e, ref)}
       tabIndex={0}
       role="button"
-      aria-label={`Navigiere zu ${ref.Object_Type}: ${ref.Object_Name}`}
+      aria-label={tx(language, `Navigiere zu ${objectTypeLabel(ref.Object_Type, language)}: ${ref.Object_Name}`, `Navigate to ${objectTypeLabel(ref.Object_Type, language)}: ${ref.Object_Name}`)}
     >
       <span className="object-type">
-        {ref.Object_Type}
+        {objectTypeLabel(ref.Object_Type, language)}
       </span>
       <span className="ref-name">
         {ref.Object_Name}
@@ -269,12 +271,12 @@ export const HierarchyTree = forwardRef<HierarchyTreeHandle, HierarchyTreeProps>
       <nav
         ref={treeRef}
         className="hierarchy-tree"
-        aria-label="Objekt-Hierarchie"
+        aria-label={tx(language, 'Objekt-Hierarchie', 'Object hierarchy')}
         onKeyDown={handleTreeKeyDown}
       >
         {hasParents && (
           <section className="hierarchy-section">
-            <h2>Wird verwendet von ({matches.parent.length}{filterActive ? ` / ${references.parent.length}` : ''})</h2>
+            <h2>{tx(language, 'Wird verwendet von', 'Used by')} ({matches.parent.length}{filterActive ? ` / ${references.parent.length}` : ''})</h2>
             <ul className="reference-list">
               {matches.parent.map(renderReferenceItem)}
             </ul>
@@ -283,7 +285,7 @@ export const HierarchyTree = forwardRef<HierarchyTreeHandle, HierarchyTreeProps>
 
         {hasChildren && (
           <section className="hierarchy-section">
-            <h2>Verwendet ({matches.child.length}{filterActive ? ` / ${references.child.length}` : ''})</h2>
+            <h2>{tx(language, 'Verwendet', 'Uses')} ({matches.child.length}{filterActive ? ` / ${references.child.length}` : ''})</h2>
             <ul className="reference-list">
               {matches.child.map(renderReferenceItem)}
             </ul>
@@ -292,7 +294,7 @@ export const HierarchyTree = forwardRef<HierarchyTreeHandle, HierarchyTreeProps>
 
         {hasStructParents && (
           <section className="hierarchy-section">
-            <h2>Strukturell enthalten in ({matches.structuralParent.length}{filterActive ? ` / ${references.structuralParent.length}` : ''})</h2>
+            <h2>{tx(language, 'Strukturell enthalten in', 'Structurally contained in')} ({matches.structuralParent.length}{filterActive ? ` / ${references.structuralParent.length}` : ''})</h2>
             <ul className="reference-list">
               {matches.structuralParent.map(renderReferenceItem)}
             </ul>
@@ -301,7 +303,7 @@ export const HierarchyTree = forwardRef<HierarchyTreeHandle, HierarchyTreeProps>
 
         {hasStructChildren && (
           <section className="hierarchy-section">
-            <h2>Strukturell enthält ({matches.structuralChild.length}{filterActive ? ` / ${references.structuralChild.length}` : ''})</h2>
+            <h2>{tx(language, 'Strukturell enthält', 'Structurally contains')} ({matches.structuralChild.length}{filterActive ? ` / ${references.structuralChild.length}` : ''})</h2>
             <ul className="reference-list">
               {matches.structuralChild.map(renderReferenceItem)}
             </ul>
@@ -310,13 +312,13 @@ export const HierarchyTree = forwardRef<HierarchyTreeHandle, HierarchyTreeProps>
 
         {!hasAny && hasAnyTotal && (
           <div className="no-references">
-            Keine Treffer für die aktuellen Filter
+            {tx(language, 'Keine Treffer für die aktuellen Filter', 'No matches for the current filters')}
           </div>
         )}
 
         {!hasAnyTotal && (
           <div className="no-references">
-            Keine Referenzen gefunden
+            {tx(language, 'Keine Referenzen gefunden', 'No references found')}
           </div>
         )}
       </nav>

@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# init.sh — First-time setup for fm-lab
+# init.sh - First-time setup for fm-lab-windows-codex
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INIT_START=$SECONDS
+
+default_xml_dir() {
+  printf '%s\n' "$PROJECT_ROOT/xml"
+}
+
+XML_INPUT_DIR="${FM_LAB_XML_DIR:-$(default_xml_dir)}"
 
 VERBOSE=false
 for arg in "$@"; do
@@ -29,7 +35,7 @@ header() { echo -e "\n${BOLD}$1${NC}"; }
 SUMMARY=()
 summary_add() { SUMMARY+=("$1"); }
 
-header "fm-lab init"
+header "fm-lab-windows-codex init"
 echo "  Project root: $PROJECT_ROOT"
 [ "$VERBOSE" = true ] && echo "  Mode: verbose (--verbose)"
 
@@ -221,13 +227,14 @@ mkdir -p "$PROJECT_ROOT/logs"
 
 header "FileMaker XML export"
 
-XML_FILES=$(find "$PROJECT_ROOT/xml" -maxdepth 1 -name "*.xml" 2>/dev/null | wc -l | tr -d ' ')
+mkdir -p "$XML_INPUT_DIR" 2>/dev/null || true
+XML_FILES=$(find "$XML_INPUT_DIR" -maxdepth 1 -name "*.xml" 2>/dev/null | wc -l | tr -d ' ')
 
 print_summary() {
   local elapsed=$((SECONDS - INIT_START))
   echo ""
   echo -e "${BOLD}══════════════════════════════════════${NC}"
-  echo -e "${BOLD}fm-lab setup complete (${elapsed}s)${NC}"
+  echo -e "${BOLD}fm-lab-windows-codex setup complete (${elapsed}s)${NC}"
   echo ""
   for line in "${SUMMARY[@]}"; do
     echo -e "  ${GREEN}✓${NC} $line"
@@ -236,22 +243,22 @@ print_summary() {
 }
 
 if [ "$XML_FILES" -eq 0 ]; then
-  warn "No XML files found in xml/."
-  summary_add "XML conversion    skipped (no files in xml/)"
+  warn "No XML files found in $XML_INPUT_DIR."
+  summary_add "XML conversion    skipped (no files in configured XML directory)"
   print_summary
   echo ""
   echo "  Next step:"
   echo "  1. Export your FileMaker solution via 'Tools > Save a Copy As XML' + Option 'Include details for analysis tools'"
-  echo "  2. Place the .xml file in the xml/ directory"
+  echo "  2. Place the .xml file in: $XML_INPUT_DIR"
   echo "  3. Run:  bash tools/convert_fm_xml.sh --batch"
   echo "  4. Then: bash tools/start-servers.sh"
   echo ""
   exit 0
 fi
 
-info "Found $XML_FILES XML file(s) in xml/ — starting conversion"
+info "Found $XML_FILES XML file(s) in $XML_INPUT_DIR — starting conversion"
 T0=$SECONDS
-bash "$SCRIPT_DIR/convert_fm_xml.sh" --batch
+FM_LAB_XML_DIR="$XML_INPUT_DIR" bash "$SCRIPT_DIR/convert_fm_xml.sh" --batch
 summary_add "XML conversion    $XML_FILES file(s) → fm_catalog.duckdb ($((SECONDS - T0))s)"
 
 # ─── Start servers ────────────────────────────────────────────

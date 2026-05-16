@@ -15,6 +15,7 @@ import { useEscapeStack } from '../hooks/useEscapeStack';
 import { useUrlState } from '../hooks/useUrlState';
 import type { BreadcrumbItem, DetailViewTab } from '../types';
 import { DETAIL_TABS } from '../types';
+import { getUiLanguage, objectTypeLabel, tx } from '../lib/uiLanguage';
 import '../DetailView.css';
 
 function displayObjectType(objectType: string, sourceTable?: string | null): string {
@@ -24,6 +25,16 @@ function displayObjectType(objectType: string, sourceTable?: string | null): str
     case 'Layouts':                return 'LayoutFolder';
     case 'CustomFunctionsCatalog': return 'CustomFunctionFolder';
     default:                       return 'Folder';
+  }
+}
+
+function detailTabLabel(tab: DetailViewTab, language = getUiLanguage()) {
+  switch (tab) {
+    case 'detail': return tx(language, 'Details', 'Details');
+    case 'references': return tx(language, 'Referenzen', 'References');
+    case 'graph': return tx(language, 'Graph', 'Graph');
+    case 'versions': return tx(language, 'Versionen', 'Versions');
+    case 'notes': return tx(language, 'Notizen', 'Notes');
   }
 }
 
@@ -37,6 +48,7 @@ export const DetailView: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { object, references, loading, error, retry } = useObjectDetail(uuid);
+  const language = getUiLanguage();
   const hierarchyRef = useRef<HierarchyTreeHandle>(null);
 
   // URL ist Single Source of Truth für Tab — beim Wechsel wird die URL
@@ -92,7 +104,7 @@ export const DetailView: React.FC = () => {
   if (loading) {
     return (
       <div className="app">
-        <LoadingSpinner message="Objekt-Details werden geladen..." />
+        <LoadingSpinner message={tx(language, 'Objekt-Details werden geladen...', 'Loading object details...')} />
       </div>
     );
   }
@@ -100,8 +112,8 @@ export const DetailView: React.FC = () => {
   if (error) {
     return (
       <div className="app">
-        <button onClick={handleBack} className="back-button" aria-label="Zurueck zur Suchliste">
-          &larr; Zurueck
+        <button onClick={handleBack} className="back-button" aria-label={tx(language, 'Zurück zur Suchliste', 'Back to search list')}>
+          &larr; {tx(language, 'Zurück', 'Back')}
         </button>
         <div style={{ marginTop: '1rem' }}>
           <ErrorMessage message={error} onRetry={retry} />
@@ -113,16 +125,16 @@ export const DetailView: React.FC = () => {
   if (!object) {
     return (
       <div className="app">
-        <ErrorMessage message="Objekt nicht gefunden" />
+        <ErrorMessage message={tx(language, 'Objekt nicht gefunden', 'Object not found')} />
       </div>
     );
   }
 
   const breadcrumbType = displayObjectType(object.Object_Type, object.Source_Table);
   const breadcrumbItems: BreadcrumbItem[] = [
-    { label: 'Suche', path: '/' },
-    { label: breadcrumbType, path: `/?type=${breadcrumbType}` },
-    { label: object.Object_Name || '(ohne Namen)', path: null },
+    { label: tx(language, 'Suche', 'Search'), path: '/' },
+    { label: objectTypeLabel(breadcrumbType, language), path: `/?type=${breadcrumbType}` },
+    { label: object.Object_Name || tx(language, '(ohne Namen)', '(without name)'), path: null },
   ];
 
   const renderTabContent = () => {
@@ -150,8 +162,8 @@ export const DetailView: React.FC = () => {
     <div className="app" role="main" aria-labelledby="object-title">
       {/* Navigation bar */}
       <div className="detail-nav">
-        <button onClick={handleBack} className="back-button" aria-label="Zurueck zur Suchliste">
-          &larr; Zurueck
+        <button onClick={handleBack} className="back-button" aria-label={tx(language, 'Zurück zur Suchliste', 'Back to search list')}>
+          &larr; {tx(language, 'Zurück', 'Back')}
         </button>
         <Breadcrumbs items={breadcrumbItems} />
         <div style={{ marginLeft: 'auto' }}>
@@ -173,7 +185,7 @@ export const DetailView: React.FC = () => {
       )}
 
       {/* Sub-navigation tabs */}
-      <nav className="detail-tab-nav" role="tablist" aria-label="Objekt-Ansichten">
+      <nav className="detail-tab-nav" role="tablist" aria-label={tx(language, 'Objekt-Ansichten', 'Object views')}>
         {DETAIL_TABS.map((tab) => (
           <button
             key={tab.id}
@@ -184,7 +196,7 @@ export const DetailView: React.FC = () => {
             aria-disabled={!tab.enabled}
             tabIndex={tab.enabled ? 0 : -1}
           >
-            {tab.label}
+            {detailTabLabel(tab.id, language)}
           </button>
         ))}
       </nav>

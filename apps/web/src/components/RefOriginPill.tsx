@@ -1,5 +1,6 @@
 import React from 'react';
 import type { RefOriginState } from '../hooks/useRefOrigin';
+import { getUiLanguage, objectTypeLabel, tx } from '../lib/uiLanguage';
 
 interface RefOriginPillProps {
   state: RefOriginState;
@@ -30,18 +31,19 @@ export const RefOriginPill: React.FC<RefOriginPillProps> = ({
   onDismiss,
   liveMatchCount,
 }) => {
+  const language = getUiLanguage();
   if (state.status === 'idle') return null;
 
   if (state.status === 'loading') {
     return (
       <div className="ref-pill ref-pill--loading" role="status" aria-live="polite">
-        <span className="ref-pill-label">Referenz wird aufgelöst…</span>
+        <span className="ref-pill-label">{tx(language, 'Referenz wird aufgelöst...', 'Resolving reference...')}</span>
         <button
           type="button"
           className="ref-pill-dismiss"
           onClick={onDismiss}
-          aria-label="Referenz-Highlight entfernen"
-          title="Referenz-Highlight entfernen"
+          aria-label={tx(language, 'Referenz-Highlight entfernen', 'Remove reference highlight')}
+          title={tx(language, 'Referenz-Highlight entfernen', 'Remove reference highlight')}
         >
           ✕
         </button>
@@ -53,14 +55,14 @@ export const RefOriginPill: React.FC<RefOriginPillProps> = ({
     return (
       <div className="ref-pill ref-pill--error" role="alert">
         <span className="ref-pill-label">
-          Referenz konnte nicht aufgelöst werden: {state.error}
+          {tx(language, 'Referenz konnte nicht aufgelöst werden', 'Reference could not be resolved')}: {state.error}
         </span>
         <button
           type="button"
           className="ref-pill-dismiss"
           onClick={onDismiss}
-          aria-label="Referenz-Highlight entfernen"
-          title="Referenz-Highlight entfernen"
+          aria-label={tx(language, 'Referenz-Highlight entfernen', 'Remove reference highlight')}
+          title={tx(language, 'Referenz-Highlight entfernen', 'Remove reference highlight')}
         >
           ✕
         </button>
@@ -73,14 +75,14 @@ export const RefOriginPill: React.FC<RefOriginPillProps> = ({
       <div className="ref-pill ref-pill--unresolved" role="status">
         <span className="ref-pill-icon" aria-hidden="true">⚠</span>
         <span className="ref-pill-label">
-          Referenz nicht gefunden: <code>{rawRef}</code>
+          {tx(language, 'Referenz nicht gefunden', 'Reference not found')}: <code>{rawRef}</code>
         </span>
         <button
           type="button"
           className="ref-pill-dismiss"
           onClick={onDismiss}
-          aria-label="Referenz-Highlight entfernen"
-          title="Referenz-Highlight entfernen"
+          aria-label={tx(language, 'Referenz-Highlight entfernen', 'Remove reference highlight')}
+          title={tx(language, 'Referenz-Highlight entfernen', 'Remove reference highlight')}
         >
           ✕
         </button>
@@ -97,7 +99,7 @@ export const RefOriginPill: React.FC<RefOriginPillProps> = ({
   return (
     <div className="ref-pill ref-pill--resolved" role="status" aria-live="polite">
       <span className="ref-pill-label">
-        Referenz: <span className="ref-pill-type">{o.type}</span>
+        {tx(language, 'Referenz', 'Reference')}: <span className="ref-pill-type">{objectTypeLabel(o.type, language)}</span>
         <span className="ref-pill-sep"> · </span>
         <span className="ref-pill-name">{o.name}</span>
         {o.file && (
@@ -105,14 +107,14 @@ export const RefOriginPill: React.FC<RefOriginPillProps> = ({
         )}
       </span>
       <span className="ref-pill-count">
-        {`${count} ${count === 1 ? 'Treffer' : 'Treffer'} hervorgehoben`}
+        {tx(language, `${count} Treffer hervorgehoben`, `${count} ${count === 1 ? 'match' : 'matches'} highlighted`)}
       </span>
       <button
         type="button"
         className="ref-pill-dismiss"
         onClick={onDismiss}
-        aria-label="Referenz-Highlight entfernen"
-        title="Referenz-Highlight entfernen (Esc)"
+        aria-label={tx(language, 'Referenz-Highlight entfernen', 'Remove reference highlight')}
+        title={tx(language, 'Referenz-Highlight entfernen (Esc)', 'Remove reference highlight (Esc)')}
       >
         ✕
       </button>

@@ -6,6 +6,7 @@ const { errorHandler } = require('./middleware/error-handler');
 const logger = require('./middleware/logger');
 const corsMiddleware = require('./middleware/cors');
 const normalizeQueryKeys = require('./middleware/query-normalizer');
+const appLogger = require('./utils/app-logger');
 
 /**
  * FileMaker DuckDB Analysis API
@@ -29,6 +30,7 @@ app.use(corsMiddleware);
 app.use(logger);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(normalizeQueryKeys);
 
 // API Routes
 app.use('/api', routes);
@@ -47,6 +49,14 @@ app.get('/', (req, res) => {
       count: '/api/count',
       search: '/api/search?name=<pattern>',
       searchCount: '/api/search/count?name=<pattern>',
+      scriptSearch: '/api/search/scripts?q=<text>',
+      scriptSearchCount: '/api/search/scripts/count?q=<text>',
+      tableOccurrenceUsage: '/api/analysis/table-occurrences/usage',
+      objectUsage: '/api/analysis/objects/usage',
+      apiIntegrations: '/api/analysis/api-integrations',
+      apiIntegrationSummary: '/api/analysis/api-integrations/summary',
+      serverLogTopCalls: '/api/analysis/server-logs/top-calls',
+      serverLogTopCallSummary: '/api/analysis/server-logs/top-calls/summary',
       references: '/api/references?uuid=<uuid>',
       query: '/api/query?template=<name>',
       report: '/api/report?template=<name>',
@@ -59,6 +69,12 @@ app.get('/', (req, res) => {
       referenceLookup: '/api/reference/lookup?token=<token>&lang=<lang>',
       referenceHelp: '/api/reference/help/:lang/:slug',
       referenceHelpStatus: '/api/reference/help/status',
+      localizationLabels: '/api/localization/labels?language=<de|en>',
+      aiProviders: '/api/ai/providers',
+      aiConversations: '/api/ai/conversations',
+      aiConversation: '/api/ai/conversations/:id',
+      aiMessage: 'POST /api/ai/conversations/:id/messages',
+      aiMarkdown: '/api/ai/conversations/:id/markdown',
       adminReload: 'POST /api/admin/reload',
     },
     documentation: 'See README.md for full API documentation',
@@ -85,57 +101,63 @@ app.use(errorHandler);
 async function start() {
   try {
     // Initialize database connection
-    console.log('Initializing database connection...');
+    appLogger.info('Initializing database connection');
     await db.initialize();
 
     // Start HTTP server
     const server = app.listen(environment.port, environment.host, () => {
-      console.log('');
-      console.log('========================================');
-      console.log('FileMaker DuckDB Analysis API');
-      console.log('========================================');
-      console.log(`Environment: ${environment.nodeEnv}`);
-      console.log(`Server: http://${environment.host}:${environment.port}`);
-      console.log(`API Endpoints: http://${environment.host}:${environment.port}/api`);
-      console.log('========================================');
-      console.log('');
-      console.log('Available endpoints:');
-      console.log(`  GET  /api/version        - API version and health`);
-      console.log(`  GET  /api/info           - Solution information`);
-      console.log(`  GET  /api/get            - Get object by UUID`);
-      console.log(`  GET  /api/get-details    - Type-specific object details`);
-      console.log(`  GET  /api/list           - List objects by type`);
-      console.log(`  GET  /api/count          - Count objects`);
-      console.log(`  GET  /api/search         - Search objects by name`);
-      console.log(`  GET  /api/search/count   - Count search results`);
-      console.log(`  GET  /api/references     - Get object references`);
-      console.log(`  GET  /api/query          - Execute custom SQL template`);
-      console.log(`  GET  /api/report         - Execute report SQL template`);
-      console.log(`  GET  /api/plugin-docs    - Plugin function documentation (MBS, ...)`);
-      console.log(`  GET  /api/reference/*    - FileMaker Reference (Steps, Functions, Help)`);
-      console.log('');
+      appLogger.info('FileMaker DuckDB Analysis API started', {
+        environment: environment.nodeEnv,
+        server: `http://${environment.host}:${environment.port}`,
+        api: `http://${environment.host}:${environment.port}/api`,
+      });
+      appLogger.debug('Available API endpoints', {
+        endpoints: [
+          'GET /api/version',
+          'GET /api/info',
+          'GET /api/get',
+          'GET /api/get-details',
+          'GET /api/list',
+          'GET /api/count',
+          'GET /api/search',
+          'GET /api/search/count',
+          'GET /api/search/scripts',
+          'GET /api/analysis/table-occurrences/usage',
+          'GET /api/analysis/objects/usage',
+          'GET /api/analysis/api-integrations',
+          'GET /api/analysis/server-logs/top-calls',
+          'GET /api/references',
+          'GET /api/query',
+          'GET /api/report',
+          'GET /api/plugin-docs',
+          'GET /api/reference/*',
+          'GET /api/localization/labels',
+          'GET /api/ai/providers',
+          'POST /api/ai/conversations/:id/messages',
+        ],
+      });
     });
 
     // Graceful shutdown
     process.on('SIGTERM', () => {
-      console.log('SIGTERM signal received: closing HTTP server');
+      appLogger.info('SIGTERM signal received: closing HTTP server');
       server.close(async () => {
-        console.log('HTTP server closed');
+        appLogger.info('HTTP server closed');
         await db.close();
         process.exit(0);
       });
     });
 
     process.on('SIGINT', () => {
-      console.log('\nSIGINT signal received: closing HTTP server');
+      appLogger.info('SIGINT signal received: closing HTTP server');
       server.close(async () => {
-        console.log('HTTP server closed');
+        appLogger.info('HTTP server closed');
         await db.close();
         process.exit(0);
       });
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    appLogger.error('Failed to start server', { error: error.message, stack: error.stack });
     process.exit(1);
   }
 }

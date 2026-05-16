@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { LayoutObject } from '../hooks/useLayoutData';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 type Props = {
   object: LayoutObject;
@@ -28,6 +29,7 @@ function clampLines(text: string): { display: string; truncated: boolean } {
 }
 
 export function LayoutObjectTooltip({ object, x, y }: Props) {
+  const language = getUiLanguage();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: x + CURSOR_OFFSET_X, top: y + CURSOR_OFFSET_Y });
 
@@ -65,7 +67,7 @@ export function LayoutObjectTooltip({ object, x, y }: Props) {
       style={{ left: pos.left, top: pos.top }}
     >
       <div className="layout-tooltip-row">
-        <span className="layout-tooltip-key">Type</span>
+        <span className="layout-tooltip-key">{tx(language, 'Typ', 'Type')}</span>
         <span className="layout-tooltip-val layout-tooltip-type">{object.object_type}</span>
       </div>
       {object.object_name && (
@@ -76,7 +78,7 @@ export function LayoutObjectTooltip({ object, x, y }: Props) {
       )}
       {object.field_name && (
         <div className="layout-tooltip-row">
-          <span className="layout-tooltip-key">Field</span>
+          <span className="layout-tooltip-key">{tx(language, 'Feld', 'Field')}</span>
           <span className="layout-tooltip-val layout-tooltip-link">{object.field_name}</span>
         </div>
       )}
@@ -91,7 +93,7 @@ export function LayoutObjectTooltip({ object, x, y }: Props) {
           <div className="layout-tooltip-key">Tooltip</div>
           <pre className="layout-tooltip-pre">{tooltip.display}</pre>
           {tooltip.truncated && (
-            <div className="layout-tooltip-hint">…(weitere Zeilen — Detail öffnen)</div>
+            <div className="layout-tooltip-hint">{tx(language, '...(weitere Zeilen - Detail öffnen)', '...(more lines - open detail)')}</div>
           )}
         </div>
       )}
@@ -100,14 +102,14 @@ export function LayoutObjectTooltip({ object, x, y }: Props) {
           <div className="layout-tooltip-key">Hide</div>
           <pre className="layout-tooltip-pre">{hide.display}</pre>
           {hide.truncated && (
-            <div className="layout-tooltip-hint">…(weitere Zeilen — Detail öffnen)</div>
+            <div className="layout-tooltip-hint">{tx(language, '...(weitere Zeilen - Detail öffnen)', '...(more lines - open detail)')}</div>
           )}
         </div>
       )}
       {object.has_conditional_fmt && (
         <div className="layout-tooltip-row">
-          <span className="layout-tooltip-key">Conditional Formatting</span>
-          <span className="layout-tooltip-val">vorhanden</span>
+          <span className="layout-tooltip-key">{tx(language, 'Bedingte Formatierung', 'Conditional formatting')}</span>
+          <span className="layout-tooltip-val">{tx(language, 'vorhanden', 'available')}</span>
         </div>
       )}
     </div>

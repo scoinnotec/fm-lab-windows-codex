@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const appLogger = require('../utils/app-logger');
 
 /**
  * Settings Store für Plugins.
@@ -57,7 +58,7 @@ function readJsonSafe(file) {
     if (!fs.existsSync(file)) return null;
     return JSON.parse(fs.readFileSync(file, 'utf-8'));
   } catch (err) {
-    console.warn(`settings-store: failed to read ${file}: ${err.message}`);
+    appLogger.warn('Settings store failed to read JSON', { file, error: err.message });
     return null;
   }
 }

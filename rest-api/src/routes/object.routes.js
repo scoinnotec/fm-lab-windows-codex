@@ -33,6 +33,12 @@ router.get('/count', validate('count'), objectController.count);
 // GET /api/search/count - Count search results (must be before /search)
 router.get('/search/count', validate('searchCount'), objectController.searchCount);
 
+// GET /api/search/scripts/count - Count script content search results
+router.get('/search/scripts/count', validate('scriptSearchCount'), objectController.scriptSearchCount);
+
+// GET /api/search/scripts - Search inside script steps, formulas, parameters and references
+router.get('/search/scripts', validate('scriptSearch'), objectController.scriptSearch);
+
 // GET /api/search - Search objects by name
 router.get('/search', validate('search'), objectController.search);
 

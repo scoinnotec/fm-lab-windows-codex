@@ -9,6 +9,10 @@ const pluginsRoutes = require('./plugins.routes');
 const pluginDocsRoutes = require('./plugin-docs.routes');
 const relationshipGraphRoutes = require('./relationshipGraph.routes');
 const referenceRoutes = require('./reference.routes');
+const analysisRoutes = require('./analysis.routes');
+const localizationRoutes = require('./localization.routes');
+const aiRoutes = require('./ai.routes');
+const serverLogRoutes = require('./server-log.routes');
 const { loadPlugins } = require('../plugins/loader');
 
 /**
@@ -36,6 +40,18 @@ router.use('/', pluginDocsRoutes);
 
 // Relationship Graph (/api/relationship-graph/:fileName)
 router.use('/', relationshipGraphRoutes);
+
+// Analysis endpoints (/api/analysis/*)
+router.use('/', analysisRoutes);
+
+// FileMaker Server log analysis endpoints (/api/analysis/server-logs/*)
+router.use('/', serverLogRoutes);
+
+// UI/FileMaker terminology localization (/api/localization/*)
+router.use('/', localizationRoutes);
+
+// AI chat/agent endpoints (/api/ai/*)
+router.use('/', aiRoutes);
 
 // Reference-DB (Script Steps + Functions + Claris-Hilfe-Mirror)
 router.use('/', referenceRoutes);

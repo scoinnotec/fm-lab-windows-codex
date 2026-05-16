@@ -2,6 +2,7 @@ const { DuckDBInstance } = require('@duckdb/node-api');
 const fs = require('fs');
 const path = require('path');
 const environment = require('./environment');
+const appLogger = require('../utils/app-logger');
 
 let instance   = null;
 let connection = null;
@@ -14,7 +15,7 @@ async function initialize() {
   }
 
   const dbPath = path.resolve(__dirname, '../../', environment.duckdb.path);
-  console.log(`Connecting to DuckDB at: ${dbPath}`);
+  appLogger.info('Connecting to DuckDB', { path: dbPath });
 
   instance = await DuckDBInstance.create(dbPath, {
     access_mode: 'READ_ONLY',
@@ -24,9 +25,11 @@ async function initialize() {
 
   connection = await instance.connect();
 
-  console.log('DuckDB connection established successfully (READ_ONLY)');
-  console.log(`  - Max Memory: ${environment.duckdb.maxMemory}`);
-  console.log(`  - Threads: ${environment.duckdb.threads}`);
+  appLogger.info('DuckDB connection established', {
+    accessMode: 'READ_ONLY',
+    maxMemory: environment.duckdb.maxMemory,
+    threads: environment.duckdb.threads,
+  });
 
   await attachReferenceDb();
 
@@ -37,7 +40,7 @@ async function attachReferenceDb() {
   referenceAttached = false;
   const refPath = path.resolve(__dirname, '../../', environment.reference.duckdbPath);
   if (!fs.existsSync(refPath)) {
-    console.warn(`Reference-DB not found at ${refPath} — /api/reference endpoints will return 503.`);
+    appLogger.warn('Reference-DB not found; /api/reference endpoints will return 503', { path: refPath });
     return false;
   }
   // ATTACH erlaubt READ_ONLY-Modus selbst auf einer READ_ONLY-Hauptverbindung
@@ -46,7 +49,7 @@ async function attachReferenceDb() {
   const stmt = await connection.prepare(`ATTACH '${escaped}' AS ref (READ_ONLY)`);
   await stmt.run();
   referenceAttached = true;
-  console.log(`Reference-DB attached as 'ref' from: ${refPath}`);
+  appLogger.info('Reference-DB attached', { alias: 'ref', path: refPath });
   return true;
 }
 
@@ -107,9 +110,16 @@ async function executeQuery(sql, params = []) {
       },
     };
   } catch (err) {
-    console.error('Query execution failed:', err.message);
-    console.error('SQL:', sql);
-    console.error('Params:', params);
+    const meta = {
+      error: err.message,
+      executionTimeMs: Date.now() - startTime,
+      paramCount: params.length,
+    };
+    if (environment.api.allowDebugOutput) {
+      meta.sql = sql;
+      meta.params = params;
+    }
+    appLogger.error('Query execution failed', meta);
     throw err;
   }
 }
@@ -124,9 +134,9 @@ async function close() {
       connection.disconnectSync();
     }
     instance.closeSync();
-    console.log('Database connection closed');
+    appLogger.info('Database connection closed');
   } catch (err) {
-    console.error('Error closing database:', err);
+    appLogger.error('Error closing database', { error: err });
     throw err;
   } finally {
     instance   = null;
@@ -161,7 +171,7 @@ async function getDatabaseStats() {
     stats.max_memory = environment.duckdb.maxMemory;
     stats.threads = environment.duckdb.threads;
   } catch (error) {
-    console.error('Error getting database stats:', error);
+    appLogger.error('Error getting database stats', { error });
   }
 
   return stats;

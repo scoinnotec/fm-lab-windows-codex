@@ -50,9 +50,10 @@ export function useFeatures(): FeaturesState {
   useEffect(() => {
     let cancelled = false;
 
-    api.version().then((res: { success?: boolean; data?: { features?: Record<string, PluginFeature> } }) => {
+    api.version().then((res) => {
       if (cancelled) return;
-      setFeatures(res.data?.features ?? {});
+      const data = res.data as typeof res.data & { features?: Record<string, PluginFeature> };
+      setFeatures(data?.features ?? {});
     }).catch(() => {
       if (!cancelled) setFeatures({});
     }).finally(() => {

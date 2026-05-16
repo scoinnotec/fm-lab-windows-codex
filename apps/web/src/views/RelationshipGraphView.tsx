@@ -5,11 +5,13 @@ import { useRelationshipGraph } from '../hooks/useRelationshipGraph';
 import { RelationshipGraph, type RelationshipGraphHandle } from '../components/RelationshipGraph';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { useEscapeStack } from '../hooks/useEscapeStack';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 import './RelationshipGraphView.css';
 
 type FileInfo = { File_Name?: string };
 
 export function RelationshipGraphView() {
+  const language = getUiLanguage();
   const { fileName } = useParams<{ fileName: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -41,7 +43,7 @@ export function RelationshipGraphView() {
           setFiles(response.data.solution.files as FileInfo[]);
         }
       } catch (err) {
-        console.error('Fehler beim Laden der Dateien:', err);
+        console.error('Failed to load files:', err);
       }
     }
     loadFiles();
@@ -81,19 +83,19 @@ export function RelationshipGraphView() {
           type="button"
           onClick={handleBack}
           className="relationship-graph-back"
-          title="Zurück zur vorherigen Ansicht"
+          title={tx(language, 'Zurück zur vorherigen Ansicht', 'Back to previous view')}
         >
-          ← Zurück
+          ← {tx(language, 'Zurück', 'Back')}
         </button>
-        <h1>Beziehungsdiagramm</h1>
+        <h1>{tx(language, 'Beziehungsdiagramm', 'Relationship graph')}</h1>
         <div className="relationship-graph-file-selector">
-          <label htmlFor="rg-file">Datei:</label>
+          <label htmlFor="rg-file">{tx(language, 'Datei:', 'File:')}</label>
           <select
             id="rg-file"
             value={fileName ?? ''}
             onChange={e => handleFileChange(e.target.value)}
           >
-            <option value="" disabled>Datei auswählen…</option>
+            <option value="" disabled>{tx(language, 'Datei auswählen...', 'Select file...')}</option>
             {files.map(f => (
               <option key={f.File_Name || ''} value={f.File_Name || ''}>{f.File_Name}</option>
             ))}
@@ -105,30 +107,30 @@ export function RelationshipGraphView() {
       <div className="relationship-graph-body">
         {!fileName && (
           <div className="relationship-graph-empty">
-            Bitte eine Datei aus der Auswahl wählen.
+            {tx(language, 'Bitte eine Datei aus der Auswahl wählen.', 'Select a file from the list.')}
           </div>
         )}
 
         {fileName && loading && (
-          <div className="relationship-graph-empty">Lade Beziehungsdiagramm…</div>
+          <div className="relationship-graph-empty">{tx(language, 'Lade Beziehungsdiagramm...', 'Loading relationship graph...')}</div>
         )}
 
         {fileName && error && (
           <div className="relationship-graph-error">
-            Fehler: {error}
+            {tx(language, 'Fehler', 'Error')}: {error}
           </div>
         )}
 
         {fileName && data && data.tableOccurrences.length === 0 && (
           <div className="relationship-graph-empty">
-            Diese Datei enthält keine Table Occurrences.
+            {tx(language, 'Diese Datei enthält keine Tabellenauftreten.', 'This file contains no table occurrences.')}
           </div>
         )}
 
         {fileName && data && data.tableOccurrences.length > 0 &&
           data.tableOccurrences.every(t => t.bounds.left == null) && (
             <div className="relationship-graph-empty">
-              Beziehungsdiagramm noch nicht importiert. Bitte <code>convert-xml --batch</code> neu ausführen.
+              {tx(language, 'Beziehungsdiagramm noch nicht importiert. Bitte', 'Relationship graph not imported yet. Please rerun')} <code>convert-xml --batch</code>{tx(language, ' neu ausführen.', '.')}
             </div>
           )}
 

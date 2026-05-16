@@ -1,4 +1,5 @@
 import { useMemo, useRef } from 'react';
+import { getUiLanguage, objectTypeLabel, tx } from '../lib/uiLanguage';
 
 type Props = {
   typeCounts: Map<string, number>;
@@ -30,13 +31,14 @@ export function ReferencesFilter({
   onJumpToList,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const language = getUiLanguage();
 
   // Sortierung: nach Anzahl absteigend, danach alphabetisch — der häufigste
   // Typ steht links und ist am schnellsten erreichbar.
   const sortedTypes = useMemo(() => {
     return Array.from(typeCounts.entries())
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }, [typeCounts]);
+      .sort((a, b) => b[1] - a[1] || objectTypeLabel(a[0], language).localeCompare(objectTypeLabel(b[0], language)));
+  }, [typeCounts, language]);
 
   const hasAnyActive = activeTypes.size > 0;
   const filterActive = hasAnyActive || query !== '';
@@ -60,12 +62,12 @@ export function ReferencesFilter({
         <input
           ref={inputRef}
           type="search"
-          placeholder="Referenzen durchsuchen…"
+          placeholder={tx(language, 'Referenzen durchsuchen...', 'Search references...')}
           value={query}
           onChange={e => onQueryChange(e.target.value)}
           onKeyDown={onKeyDown}
-          title="Esc: Eingabe leeren"
-          aria-label="Referenzen durchsuchen"
+          title={tx(language, 'Esc: Eingabe leeren', 'Esc: clear input')}
+          aria-label={tx(language, 'Referenzen durchsuchen', 'Search references')}
         />
         {filterActive && (
           <span className="references-filter-count">
@@ -77,15 +79,16 @@ export function ReferencesFilter({
         <div className="references-filter-pills">
           {sortedTypes.map(([type, count]) => {
             const active = activeTypes.has(type);
+            const label = objectTypeLabel(type, language);
             return (
               <button
                 key={type}
                 type="button"
                 className={`references-filter-pill${active ? ' active' : ''}`}
                 onClick={() => onToggleType(type)}
-                title={`${type} (${count})`}
+                title={`${label} (${count})`}
               >
-                {type}
+                {label}
                 <span className="references-filter-pill-count">({count})</span>
               </button>
             );
@@ -95,9 +98,9 @@ export function ReferencesFilter({
               type="button"
               className="references-filter-link"
               onClick={onClearTypes}
-              title="Alle Typ-Filter aufheben"
+              title={tx(language, 'Alle Typ-Filter aufheben', 'Clear all type filters')}
             >
-              Filter zurücksetzen
+              {tx(language, 'Filter zurücksetzen', 'Reset filter')}
             </button>
           )}
         </div>

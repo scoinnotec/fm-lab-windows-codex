@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { components } from '@packages/shared/types';
-import { CATEGORY_LABEL_DE, type PseudoTokenType } from '@packages/shared/constants';
 import {
   PseudoTokenFilterToolbar,
   type CategoryEntry,
   type SortMode,
 } from './PseudoTokenFilterToolbar';
 import { ObjectListItem } from './ObjectListItem';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 type FMObject = components['schemas']['FMObject'];
 type AggObject = FMObject & {
@@ -30,6 +30,7 @@ interface Props {
   objectType: string;
   file?: string;
   onItemClick: (uuid: string) => void;
+  onSendToAiChat?: (prompt: string) => void;
   initialCategory?: string;
   initialSort?: SortMode;
   onUrlStateChange?: (state: { category?: string; sort?: SortMode }) => void;
@@ -63,10 +64,12 @@ export const PseudoTokenView: React.FC<Props> = ({
   objectType,
   file,
   onItemClick,
+  onSendToAiChat,
   initialCategory,
   initialSort,
   onUrlStateChange,
 }) => {
+  const language = getUiLanguage();
   const isTokenType = PSEUDO_TOKEN_TYPES.has(objectType);
   const isComponentType = objectType === 'PluginComponent';
 
@@ -179,8 +182,8 @@ export const PseudoTokenView: React.FC<Props> = ({
   };
 
   const categoryLabel = isTokenType
-    ? CATEGORY_LABEL_DE[objectType as PseudoTokenType] || 'Kategorie'
-    : 'Kategorie';
+    ? (objectType === 'PluginFunction' ? tx(language, 'Komponente', 'Component') : tx(language, 'Kategorie', 'Category'))
+    : tx(language, 'Kategorie', 'Category');
 
   return (
     <div className="pseudo-token-view">
@@ -204,26 +207,26 @@ export const PseudoTokenView: React.FC<Props> = ({
         <div className="pseudo-token-toolbar pseudo-token-toolbar-component">
           <div className="pseudo-token-toolbar-row1">
             <div className="pseudo-token-toolbar-search">
-              <label htmlFor="pseudo-token-search-input">Suchen:</label>
+              <label htmlFor="pseudo-token-search-input">{tx(language, 'Suchen:', 'Search:')}</label>
               <input
                 id="pseudo-token-search-input"
                 type="text"
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                placeholder="Komponente filtern…"
+                placeholder={tx(language, 'Komponente filtern...', 'Filter component...')}
               />
               <span className="pseudo-token-count">
                 {filteredItems.length} / {items.length}
               </span>
             </div>
             <div className="pseudo-token-toolbar-sort">
-              <label htmlFor="pseudo-token-sort-select">Sortierung:</label>
+              <label htmlFor="pseudo-token-sort-select">{tx(language, 'Sortierung:', 'Sort:')}</label>
               <select
                 id="pseudo-token-sort-select"
                 value={sort}
                 onChange={(e) => setSort(e.target.value as SortMode)}
               >
-                <option value="usage">↓ Häufigkeit</option>
+                <option value="usage">↓ {tx(language, 'Häufigkeit', 'Usage')}</option>
                 <option value="name">A → Z</option>
               </select>
             </div>
@@ -232,7 +235,7 @@ export const PseudoTokenView: React.FC<Props> = ({
       )}
 
       {loading && items.length === 0 && (
-        <div className="virtual-list-empty">Lade Tokens…</div>
+        <div className="virtual-list-empty">{tx(language, 'Lade Tokens...', 'Loading tokens...')}</div>
       )}
 
       {error && (
@@ -240,7 +243,7 @@ export const PseudoTokenView: React.FC<Props> = ({
       )}
 
       {!loading && filteredItems.length === 0 && !error && (
-        <div className="virtual-list-empty">Keine Tokens gefunden.</div>
+        <div className="virtual-list-empty">{tx(language, 'Keine Tokens gefunden.', 'No tokens found.')}</div>
       )}
 
       <div className="pseudo-token-list">
@@ -249,6 +252,7 @@ export const PseudoTokenView: React.FC<Props> = ({
             key={obj.Object_UUID}
             object={obj}
             onClick={onItemClick}
+            onSendToAiChat={onSendToAiChat}
             onCategoryClick={isTokenType ? handleListItemCategoryClick : undefined}
           />
         ))}

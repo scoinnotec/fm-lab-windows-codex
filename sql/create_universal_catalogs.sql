@@ -44,6 +44,13 @@
 -- 5. Regex-Fallback für Dateien ohne DDR
 -- ############################################################
 
+CREATE TABLE IF NOT EXISTS LayoutObjectCalcHashes (
+    Object_UUID VARCHAR,
+    Calc_Hash VARCHAR,
+    Subrole VARCHAR,
+    File_Name VARCHAR
+);
+
 
 -- ========================================
 -- A.1: VariableUsages Tabelle
@@ -242,6 +249,15 @@ WHERE dc.Chunk_Type = 'VariableReference'
       WHERE lo.Object_XML IS NOT NULL
         AND CAST(lo.Object_XML AS VARCHAR) LIKE '%' || dc.Calc_Hash || '%'
         AND lo.File_Name = dc.File_Name
+        AND NOT EXISTS (
+            SELECT 1 FROM LayoutObjectCalcHashes h
+            WHERE h.File_Name = lo.File_Name
+        )
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM LayoutObjectCalcHashes h
+      WHERE h.Calc_Hash = dc.Calc_Hash
+        AND h.File_Name = dc.File_Name
   );
 
 -- ========================================
@@ -278,6 +294,20 @@ SELECT
 FROM DDR_Calculations dc
 JOIN (
     SELECT
+        h.Object_UUID,
+        lo.Object_Type,
+        lo.Layout_ID,
+        h.File_Name,
+        h.Calc_Hash as calc_hash,
+        h.Subrole as formula_context
+    FROM LayoutObjectCalcHashes h
+    JOIN LayoutObjects lo
+      ON h.Object_UUID = lo.Object_UUID
+     AND h.File_Name = lo.File_Name
+
+    UNION ALL
+
+    SELECT
         Object_UUID, Object_Type, Layout_ID, File_Name,
         unnest(regexp_extract_all(CAST(Object_XML AS VARCHAR),
             'kind="ChunkList" hash="([A-F0-9]+)"', 1)) as calc_hash,
@@ -286,6 +316,10 @@ JOIN (
     FROM LayoutObjects
     WHERE Object_XML IS NOT NULL
       AND CAST(Object_XML AS VARCHAR) LIKE '%ChunkList%'
+      AND NOT EXISTS (
+          SELECT 1 FROM LayoutObjectCalcHashes h
+          WHERE h.File_Name = LayoutObjects.File_Name
+      )
 ) lo ON dc.Calc_Hash = lo.calc_hash AND dc.File_Name = lo.File_Name
 JOIN Layouts l ON lo.Layout_ID = l.L_ID AND l.File_Name = lo.File_Name
 WHERE dc.Chunk_Type = 'VariableReference'

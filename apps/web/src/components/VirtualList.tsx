@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import type { VirtualListRow } from '../types';
 import { ObjectListItem } from './ObjectListItem';
 import { LoadingSpinner } from './LoadingSpinner';
+import { formatUiCount as formatCount, tx, type UiLanguage } from '../lib/uiLanguage';
 
 const ITEM_HEIGHT = 80;
 const HEADER_HEIGHT = 44;
@@ -14,7 +15,9 @@ interface VirtualListProps {
   hasMore: boolean;
   onLoadMore: () => void;
   totalCount: number | null;
+  language?: UiLanguage;
   onItemClick?: (uuid: string) => void;
+  onSendToAiChat?: (prompt: string) => void;
   onToggleGroup?: (groupKey: string) => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement>;
 }
@@ -36,7 +39,9 @@ export const VirtualList: React.FC<VirtualListProps> = ({
   hasMore,
   onLoadMore,
   totalCount,
+  language = 'de',
   onItemClick,
+  onSendToAiChat,
   onToggleGroup,
   scrollContainerRef,
 }) => {
@@ -73,10 +78,10 @@ export const VirtualList: React.FC<VirtualListProps> = ({
       {/* Results count header */}
       {totalCount !== null && (
         <div className="virtual-list-header">
-          {totalCount.toLocaleString('de-DE')} {totalCount === 1 ? 'Objekt' : 'Objekte'} gefunden
+          {formatCount(totalCount, language)} {totalCount === 1 ? tx(language, 'Objekt gefunden', 'object found') : tx(language, 'Objekte gefunden', 'objects found')}
           {itemCount < totalCount && (
             <span className="loaded-count">
-              ({itemCount} geladen)
+              ({formatCount(itemCount, language)} {tx(language, 'geladen', 'loaded')})
             </span>
           )}
         </div>
@@ -129,7 +134,7 @@ export const VirtualList: React.FC<VirtualListProps> = ({
                   </span>
                 </div>
               ) : (
-                <ObjectListItem object={row.object} onClick={onItemClick} />
+                <ObjectListItem object={row.object} onClick={onItemClick} onSendToAiChat={onSendToAiChat} />
               )}
             </div>
           );
@@ -137,19 +142,19 @@ export const VirtualList: React.FC<VirtualListProps> = ({
       </div>
 
       {/* Loading indicator at bottom */}
-      {isLoading && <LoadingSpinner message="Lade weitere Objekte..." />}
+      {isLoading && <LoadingSpinner message={tx(language, 'Lade weitere Objekte...', 'Loading more objects...')} />}
 
       {/* No more results indicator */}
       {!hasMore && itemCount > 0 && (
         <div className="virtual-list-footer">
-          Alle Objekte geladen
+          {tx(language, 'Alle Objekte geladen', 'All objects loaded')}
         </div>
       )}
 
       {/* Empty state */}
       {itemCount === 0 && !isLoading && (
         <div className="virtual-list-empty">
-          Keine Objekte gefunden
+          {tx(language, 'Keine Objekte gefunden', 'No objects found')}
         </div>
       )}
     </div>

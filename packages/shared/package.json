@@ -11,7 +11,7 @@
     "generate:client": "node scripts/generate-client.js",
     "build": "tsc",
     "build:watch": "tsc --watch",
-    "clean": "rm -rf dist generated/types.ts generated/client.ts",
+    "clean": "node -e \"const fs=require('fs'); for (const p of ['dist','generated/types.ts','generated/client.ts']) fs.rmSync(p,{recursive:true,force:true});\"",
     "lint": "eslint . --ext .ts,.js",
     "typecheck": "tsc --noEmit"
   },
@@ -42,6 +42,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.1",
     "openapi-typescript": "^7.0.0",
     "typescript": "^5.3.3"
   }

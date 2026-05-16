@@ -1,5 +1,7 @@
 const { ERROR_CODES } = require('../config/constants');
 const { buildError } = require('../utils/response-builder');
+const environment = require('../config/environment');
+const appLogger = require('../utils/app-logger');
 
 /**
  * Global Error Handler Middleware
@@ -7,10 +9,13 @@ const { buildError } = require('../utils/response-builder');
  */
 function errorHandler(err, req, res, next) {
   // Log error for debugging
-  console.error('[ERROR]', err.message);
-  if (err.stack && process.env.NODE_ENV === 'development') {
-    console.error(err.stack);
-  }
+  appLogger.error('Request failed', {
+    error: err.message,
+    code: err.code || 'INTERNAL_ERROR',
+    method: req.method,
+    path: req.path,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+  });
 
   // Determine error code and status
   const errorCode = err.code || 'INTERNAL_ERROR';
@@ -21,7 +26,7 @@ function errorHandler(err, req, res, next) {
     errorInfo.code,
     err.message || 'An unexpected error occurred',
     err.details || {},
-    req.query.debug === 'true' && process.env.NODE_ENV !== 'production' ? err.stack : null
+    req.query.debug === 'true' && environment.api.allowDebugOutput ? err.stack : null
   );
 
   // Send response

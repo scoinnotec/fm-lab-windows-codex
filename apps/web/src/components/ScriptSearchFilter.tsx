@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react';
 import type { RefType } from '../script/types';
+import { getUiLanguage, refTypeLabel, tx } from '../lib/uiLanguage';
 
 type Props = {
   typeCounts: Map<RefType, number>;
@@ -17,18 +18,6 @@ type Props = {
  * Bewusst sprechende deutsche Begriffe statt der raw camelCase-RefType-Werte,
  * damit die Pills im UI lesbar bleiben.
  */
-const TYPE_LABELS: Record<RefType, string> = {
-  field:           'Feld',
-  script:          'Script',
-  layout:          'Layout',
-  customFunction:  'Custom Function',
-  pluginFunction:  'Plugin-Funktion',
-  function:        'Funktion',
-  variable:        'Variable',
-  valueList:       'Werteliste',
-  tableOccurrence: 'TableOccurrence',
-};
-
 /**
  * Filterleiste unterhalb des Script-Viewer-Headers — analog zu
  * ReferencesFilter (DetailView) und LayoutTypeFilter. Nutzt die globalen
@@ -50,13 +39,14 @@ export function ScriptSearchFilter({
   totalCount,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const language = getUiLanguage();
 
   // Sortierung: nach Anzahl absteigend, dann alphabetisch nach Label.
   // Konsistent mit ReferencesFilter — häufigster Typ links.
   const sortedTypes = useMemo(() => {
     return Array.from(typeCounts.entries())
-      .sort((a, b) => b[1] - a[1] || TYPE_LABELS[a[0]].localeCompare(TYPE_LABELS[b[0]]));
-  }, [typeCounts]);
+      .sort((a, b) => b[1] - a[1] || refTypeLabel(a[0], language).localeCompare(refTypeLabel(b[0], language)));
+  }, [typeCounts, language]);
 
   const hasAnyActive = activeTypes.size > 0;
   const filterActive = hasAnyActive || query !== '';
@@ -67,10 +57,10 @@ export function ScriptSearchFilter({
         <input
           ref={inputRef}
           type="search"
-          placeholder="Refs durchsuchen…"
+          placeholder={tx(language, 'Refs durchsuchen...', 'Search refs...')}
           value={query}
           onChange={e => onQueryChange(e.target.value)}
-          aria-label="Refs durchsuchen"
+          aria-label={tx(language, 'Refs durchsuchen', 'Search refs')}
         />
         {filterActive && (
           <span className="references-filter-count">
@@ -82,15 +72,16 @@ export function ScriptSearchFilter({
         <div className="references-filter-pills">
           {sortedTypes.map(([type, count]) => {
             const active = activeTypes.has(type);
+            const label = refTypeLabel(type, language);
             return (
               <button
                 key={type}
                 type="button"
                 className={`references-filter-pill${active ? ' active' : ''}`}
                 onClick={() => onToggleType(type)}
-                title={`${TYPE_LABELS[type]} (${count})`}
+                title={`${label} (${count})`}
               >
-                {TYPE_LABELS[type]}
+                {label}
                 <span className="references-filter-pill-count">({count})</span>
               </button>
             );
@@ -100,9 +91,9 @@ export function ScriptSearchFilter({
               type="button"
               className="references-filter-link"
               onClick={onClearTypes}
-              title="Alle Typ-Filter aufheben"
+              title={tx(language, 'Alle Typ-Filter aufheben', 'Clear all type filters')}
             >
-              Filter zurücksetzen
+              {tx(language, 'Filter zurücksetzen', 'Reset filter')}
             </button>
           )}
         </div>

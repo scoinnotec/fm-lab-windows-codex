@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { CalcToken } from '../script/calcTokens';
 import { buildObjectPath } from '../lib/navigation';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 interface FunctionTokenSpanProps {
   token: CalcToken;
@@ -24,6 +25,7 @@ export const FunctionTokenSpan: React.FC<FunctionTokenSpanProps> = ({ token, tex
   const navigate = useNavigate();
   const { uuid: currentUuid } = useParams<{ uuid: string }>();
   const [open, setOpen] = useState(false);
+  const language = getUiLanguage();
   const hoverTimer = useRef<number | null>(null);
   const isEnriched = typeof token.functionId === 'number';
   const displayText = text ?? token.content;
@@ -70,7 +72,7 @@ export const FunctionTokenSpan: React.FC<FunctionTokenSpanProps> = ({ token, tex
       data-ref-type="function"
       // Browser-Tooltip nur als Fallback, wenn keine Reference-Daten vorliegen.
       // Bei enriched-Token zeigt der eigene Popover die vollständigen Infos.
-      title={isEnriched ? undefined : (navPath ? `${token.content} (Klick → Detail-Seite)` : token.content)}
+      title={isEnriched ? undefined : (navPath ? tx(language, `${token.content} (Klick -> Detail-Seite)`, `${token.content} (click for detail page)`) : token.content)}
       onMouseEnter={startHover}
       onMouseLeave={cancelHover}
       onClick={navPath ? handleClick : undefined}
@@ -110,13 +112,15 @@ export const FunctionTokenSpan: React.FC<FunctionTokenSpanProps> = ({ token, tex
               target="_blank"
               rel="noopener noreferrer"
             >
-              {token.functionLocalHelpUrl ? 'Lokale Hilfe öffnen ↗' : 'Claris-Hilfe öffnen ↗'}
+              {token.functionLocalHelpUrl
+                ? tx(language, 'Lokale Hilfe öffnen ↗', 'Open local help ↗')
+                : tx(language, 'Claris-Hilfe öffnen ↗', 'Open Claris help ↗')}
             </a>
           )}
           {token.functionCanonical && token.functionDisplayName
             && token.functionCanonical !== token.functionDisplayName && (
             <span className="fm-function-popover-canonical">
-              Kanonisch: <code>{token.functionCanonical}</code>
+              {tx(language, 'Kanonisch', 'Canonical')}: <code>{token.functionCanonical}</code>
             </span>
           )}
         </span>

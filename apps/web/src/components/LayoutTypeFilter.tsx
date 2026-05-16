@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { LayoutObject } from '../hooks/useLayoutData';
 import { useLayoutObjectPalette } from './layoutObjectTheme';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 type Props = {
   objects: LayoutObject[];
@@ -56,6 +57,7 @@ export function LayoutTypeFilter({
   onToggleDetailsMode,
 }: Props) {
   const palette = useLayoutObjectPalette();
+  const language = getUiLanguage();
   const counts = useMemo(() => {
     const m = new Map<string, number>();
     for (const o of objects) m.set(o.object_type, (m.get(o.object_type) ?? 0) + 1);
@@ -91,7 +93,7 @@ export function LayoutTypeFilter({
                 ? { background: fill, borderColor: stroke, color: stroke }
                 : undefined}
               onClick={() => onSetTypes(visible, targetActive)}
-              title={`${cat.label}: ${visible.join(', ')} (${groupCount})`}
+          title={`${cat.label}: ${visible.join(', ')} (${groupCount})`}
             >
               {cat.label}<span className="layout-type-pill-count">({groupCount})</span>
             </button>
@@ -130,18 +132,20 @@ export function LayoutTypeFilter({
           type="button"
           className="layout-type-filter-link"
           onClick={onToggleDetailsMode}
-          title={detailsMode ? 'Auf Gruppen-Übersicht reduzieren' : 'Einzelne Typen anzeigen'}
+          title={detailsMode
+            ? tx(language, 'Auf Gruppen-Übersicht reduzieren', 'Reduce to group overview')
+            : tx(language, 'Einzelne Typen anzeigen', 'Show individual types')}
         >
-          {detailsMode ? 'Gruppen' : 'Details'}
+          {detailsMode ? tx(language, 'Gruppen', 'Groups') : tx(language, 'Details', 'Details')}
         </button>
         {hasAnyActive && (
           <button
             type="button"
             className="layout-type-filter-link"
             onClick={onClear}
-            title="Alle Typ-Filter aufheben"
+            title={tx(language, 'Alle Typ-Filter aufheben', 'Clear all type filters')}
           >
-            Filter zurücksetzen
+            {tx(language, 'Filter zurücksetzen', 'Reset filter')}
           </button>
         )}
       </div>

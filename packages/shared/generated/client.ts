@@ -8,6 +8,68 @@ import type { paths } from './types.js';
 
 export type ApiClient = ReturnType<typeof createApiClient>;
 
+export type ApiClientErrorDetails = {
+  code: string;
+  message: string;
+  details?: unknown;
+  status?: number;
+  raw: unknown;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  return typeof value === 'number' ? value : undefined;
+}
+
+function extractApiErrorDetails(raw: unknown): ApiClientErrorDetails {
+  const fallback: ApiClientErrorDetails = {
+    code: 'REQUEST_FAILED',
+    message: 'Request failed',
+    raw,
+  };
+
+  if (!isRecord(raw)) {
+    return fallback;
+  }
+
+  const wrapped = raw.error;
+  const source = isRecord(wrapped) ? wrapped : raw;
+  const code = stringOrUndefined(source.code) || stringOrUndefined(raw.code) || fallback.code;
+  const message = stringOrUndefined(source.message) || stringOrUndefined(raw.message) || fallback.message;
+  const details = source.details ?? raw.details;
+  const status = numberOrUndefined(source.status) || numberOrUndefined(raw.status);
+
+  return { code, message, details, status, raw };
+}
+
+export class ApiClientError extends Error {
+  readonly code: string;
+  readonly details?: unknown;
+  readonly status?: number;
+  readonly raw: unknown;
+
+  constructor(raw: unknown) {
+    const parsed = extractApiErrorDetails(raw);
+    super(parsed.message);
+    this.name = 'ApiClientError';
+    this.code = parsed.code;
+    this.details = parsed.details;
+    this.status = parsed.status;
+    this.raw = parsed.raw;
+  }
+}
+
+function throwApiClientError(error: unknown): never {
+  throw new ApiClientError(error);
+}
+
 /**
  * Create a type-safe API client instance
  *
@@ -31,7 +93,7 @@ export function createApiClient(options: { baseUrl: string }) {
       const { data, error } = await client.GET('/get', {
         params: { query: params }
       });
-      if (error) throw new Error((error as any).error?.message || 'Request failed');
+      if (error) throwApiClientError(error);
       return data;
     },
 
@@ -42,7 +104,7 @@ export function createApiClient(options: { baseUrl: string }) {
       const { data, error } = await client.GET('/list', {
         params: { query: params }
       });
-      if (error) throw new Error((error as any).error?.message || 'Request failed');
+      if (error) throwApiClientError(error);
       return data;
     },
 
@@ -53,7 +115,7 @@ export function createApiClient(options: { baseUrl: string }) {
       const { data, error } = await client.GET('/search', {
         params: { query: params }
       });
-      if (error) throw new Error((error as any).error?.message || 'Request failed');
+      if (error) throwApiClientError(error);
       return data;
     },
 
@@ -64,7 +126,7 @@ export function createApiClient(options: { baseUrl: string }) {
       const { data, error } = await client.GET('/search/count', {
         params: { query: params }
       });
-      if (error) throw new Error((error as any).error?.message || 'Request failed');
+      if (error) throwApiClientError(error);
       return data;
     },
 
@@ -75,7 +137,7 @@ export function createApiClient(options: { baseUrl: string }) {
       const { data, error } = await client.GET('/count', {
         params: { query: params }
       });
-      if (error) throw new Error((error as any).error?.message || 'Request failed');
+      if (error) throwApiClientError(error);
       return data;
     },
 
@@ -86,7 +148,7 @@ export function createApiClient(options: { baseUrl: string }) {
       const { data, error } = await client.GET('/references', {
         params: { query: params }
       });
-      if (error) throw new Error((error as any).error?.message || 'Request failed');
+      if (error) throwApiClientError(error);
       return data;
     },
 
@@ -97,7 +159,7 @@ export function createApiClient(options: { baseUrl: string }) {
       const { data, error } = await client.GET('/query', {
         params: { query: params }
       });
-      if (error) throw new Error((error as any).error?.message || 'Request failed');
+      if (error) throwApiClientError(error);
       return data;
     },
 
@@ -106,7 +168,7 @@ export function createApiClient(options: { baseUrl: string }) {
      */
     async queryPost(body: paths['/query']['post']['requestBody']['content']['application/json']) {
       const { data, error } = await client.POST('/query', { body });
-      if (error) throw new Error((error as any).error?.message || 'Request failed');
+      if (error) throwApiClientError(error);
       return data;
     },
 
@@ -117,7 +179,7 @@ export function createApiClient(options: { baseUrl: string }) {
       const { data, error } = await client.GET('/report', {
         params: { query: params }
       });
-      if (error) throw new Error((error as any).error?.message || 'Request failed');
+      if (error) throwApiClientError(error);
       return data;
     },
 
@@ -126,7 +188,7 @@ export function createApiClient(options: { baseUrl: string }) {
      */
     async reportPost(body: paths['/report']['post']['requestBody']['content']['application/json']) {
       const { data, error } = await client.POST('/report', { body });
-      if (error) throw new Error((error as any).error?.message || 'Request failed');
+      if (error) throwApiClientError(error);
       return data;
     },
 
@@ -135,7 +197,7 @@ export function createApiClient(options: { baseUrl: string }) {
      */
     async version() {
       const { data, error } = await client.GET('/version');
-      if (error) throw new Error((error as any).error?.message || 'Request failed');
+      if (error) throwApiClientError(error);
       return data;
     },
 
@@ -146,7 +208,7 @@ export function createApiClient(options: { baseUrl: string }) {
       const { data, error } = await client.GET('/info', {
         params: { query: params || {} }
       });
-      if (error) throw new Error((error as any).error?.message || 'Request failed');
+      if (error) throwApiClientError(error);
       return data;
     },
   };

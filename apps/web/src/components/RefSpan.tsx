@@ -5,6 +5,7 @@ import { fetchPluginDoc, type PluginDoc } from '../script/pluginDocsApi';
 import { sanitizePluginHtml } from '../script/sanitize';
 import { useHighlightRefUuids, isUuidHighlighted, useScriptSearchPredicate } from '../script/highlightContext';
 import { buildObjectPath } from '../lib/navigation';
+import { getUiLanguage, refTypeLabel, tx } from '../lib/uiLanguage';
 
 interface RefSpanProps {
   reference: ScriptRef;
@@ -26,6 +27,7 @@ const FunctionRefSpan: React.FC<RefSpanProps & { className: string; navPath: str
 }) => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const language = getUiLanguage();
   const hoverTimer = useRef<number | null>(null);
   const isEnriched = typeof reference.functionId === 'number';
 
@@ -59,7 +61,7 @@ const FunctionRefSpan: React.FC<RefSpanProps & { className: string; navPath: str
     <span
       className={className + (clickable ? ' fm-ref-link' : '')}
       data-ref-type="function"
-      title={isEnriched ? undefined : (clickable ? `${reference.name} (Klick → Detail-Seite)` : reference.name)}
+      title={isEnriched ? undefined : (clickable ? tx(language, `${reference.name} (Klick -> Detail-Seite)`, `${reference.name} (click for detail page)`) : reference.name)}
       onMouseEnter={startHover}
       onMouseLeave={cancelHover}
       onClick={clickable ? handleClick : undefined}
@@ -101,13 +103,15 @@ const FunctionRefSpan: React.FC<RefSpanProps & { className: string; navPath: str
               target="_blank"
               rel="noopener noreferrer"
             >
-              {reference.functionLocalHelpUrl ? 'Lokale Hilfe öffnen ↗' : 'Claris-Hilfe öffnen ↗'}
+              {reference.functionLocalHelpUrl
+                ? tx(language, 'Lokale Hilfe öffnen ↗', 'Open local help ↗')
+                : tx(language, 'Claris-Hilfe öffnen ↗', 'Open Claris help ↗')}
             </a>
           )}
           {reference.functionCanonical && reference.functionDisplayName
             && reference.functionCanonical !== reference.functionDisplayName && (
             <span className="fm-stepname-popover-canonical">
-              Kanonisch: {reference.functionCanonical}
+              {tx(language, 'Kanonisch', 'Canonical')}: {reference.functionCanonical}
             </span>
           )}
         </span>
@@ -116,16 +120,16 @@ const FunctionRefSpan: React.FC<RefSpanProps & { className: string; navPath: str
   );
 };
 
-function buildTitle(ref: ScriptRef): string {
+function buildTitle(ref: ScriptRef, language = getUiLanguage()): string {
   const parts: string[] = [];
-  parts.push(ref.type);
+  parts.push(refTypeLabel(ref.type, language));
   if (ref.subFunction) parts.push(`${ref.name}: ${ref.subFunction}`);
   else parts.push(ref.name);
-  if (ref.table) parts.push(`Tabelle: ${ref.table}`);
+  if (ref.table) parts.push(`${tx(language, 'Tabelle', 'Table')}: ${ref.table}`);
   if (ref.baseTable && ref.baseTable !== ref.table) parts.push(`BaseTable: ${ref.baseTable}`);
   if (ref.scope) parts.push(`Scope: ${ref.scope}`);
   if (ref.usage) parts.push(`Usage: ${ref.usage}`);
-  if (ref.file) parts.push(`Datei: ${ref.file}`);
+  if (ref.file) parts.push(`${tx(language, 'Datei', 'File')}: ${ref.file}`);
   if (ref.crossFile) parts.push('cross-file');
   return parts.join(' • ');
 }
@@ -173,6 +177,7 @@ const PluginRefSpan: React.FC<RefSpanProps & { className: string; title: string;
   const [doc, setDoc] = useState<PluginDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const language = getUiLanguage();
   const hoverTimer = useRef<number | null>(null);
   const containerRef = useRef<HTMLSpanElement>(null);
 
@@ -191,7 +196,7 @@ const PluginRefSpan: React.FC<RefSpanProps & { className: string; title: string;
             setDoc(d);
             setError(null);
           })
-          .catch(err => setError(err instanceof Error ? err.message : 'Fehler'))
+          .catch(err => setError(err instanceof Error ? err.message : tx(language, 'Fehler', 'Error')))
           .finally(() => setLoading(false));
       }
     }, 250);
@@ -219,7 +224,7 @@ const PluginRefSpan: React.FC<RefSpanProps & { className: string; title: string;
     <span
       ref={containerRef}
       className={className + (clickable ? ' fm-ref-link' : '')}
-      title={clickable ? `${title}  (Klick → Detail-Seite)` : title}
+      title={clickable ? tx(language, `${title}  (Klick -> Detail-Seite)`, `${title}  (click for detail page)`) : title}
       onMouseEnter={startHover}
       onMouseLeave={cancelHover}
       data-ref-type={reference.type}
@@ -238,7 +243,7 @@ const PluginRefSpan: React.FC<RefSpanProps & { className: string; title: string;
           }}
           onMouseLeave={cancelHover}
         >
-          {loading && <span className="plugin-doc-loading">Lade Doku…</span>}
+          {loading && <span className="plugin-doc-loading">{tx(language, 'Lade Doku...', 'Loading docs...')}</span>}
           {error && <span className="plugin-doc-error">{error}</span>}
           {doc && doc.found && (
             <span className="plugin-doc-content">
@@ -249,7 +254,7 @@ const PluginRefSpan: React.FC<RefSpanProps & { className: string; title: string;
                     <Link
                       to={buildObjectPath(doc.metadata.componentUuid, currentUuid ?? null)}
                       className="plugin-doc-component plugin-doc-component-link"
-                      title={`Zur Komponente MBS::${doc.metadata.component} navigieren`}
+                      title={tx(language, `Zur Komponente MBS::${doc.metadata.component} navigieren`, `Navigate to component MBS::${doc.metadata.component}`)}
                     >
                       {' · '}{doc.metadata.component}
                     </Link>
@@ -287,13 +292,15 @@ const PluginRefSpan: React.FC<RefSpanProps & { className: string; title: string;
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    {localHref ? 'Lokale MBS-Doku öffnen ↗' : 'MBS-Doku öffnen ↗'}
+                    {localHref
+                      ? tx(language, 'Lokale MBS-Doku öffnen ↗', 'Open local MBS docs ↗')
+                      : tx(language, 'MBS-Doku öffnen ↗', 'Open MBS docs ↗')}
                   </a>
                 );
               })()}
             </span>
           )}
-          {doc && !doc.found && <span className="plugin-doc-error">Keine Doku gefunden.</span>}
+          {doc && !doc.found && <span className="plugin-doc-error">{tx(language, 'Keine Doku gefunden.', 'No docs found.')}</span>}
         </span>
       )}
     </span>
@@ -304,6 +311,7 @@ export const RefSpan: React.FC<RefSpanProps> = ({ reference, text }) => {
   const highlightSet = useHighlightRefUuids();
   const searchPredicate = useScriptSearchPredicate();
   const { uuid: currentUuid } = useParams<{ uuid: string }>();
+  const language = getUiLanguage();
 
   // Highlight greift, wenn die Ref-UUID im Set ist (Token-Match). Fallback auf
   // Namensvergleich, wenn die UUID fehlt — z.B. bei Variablen ohne ObjectCatalog-
@@ -319,7 +327,7 @@ export const RefSpan: React.FC<RefSpanProps> = ({ reference, text }) => {
   const hl = highlighted ? ' fm-ref--highlighted' : '';
   const sm = searchMatch ? ' fm-ref--search-match' : '';
   const className = `${baseClass}${crossFile}${hl}${sm}`;
-  const title = buildTitle(reference);
+  const title = buildTitle(reference, language);
   // Helper: refTargetPath erzeugt nur einen Pfad, wenn die UUID einem unterstützten
   // Type angehört — wenn buildObjectPath direkt verwendet wird, wäre für Plugin/
   // Function-Types fälschlich ein Link erzeugt. Daher explizit prüfen.

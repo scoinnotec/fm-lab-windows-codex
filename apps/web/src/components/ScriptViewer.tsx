@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { ScriptTokens, ViewMode, ScriptRef, RefType } from '../script/types';
 import { computeFoldRanges, computeHiddenLines, buildFoldStartIndex } from '../script/folding';
 import { computeMarginRoleMap } from '../script/marginBar';
@@ -31,6 +32,12 @@ const EMPTY_TYPES: Set<RefType> = new Set();
 
 export const ScriptViewer: React.FC<ScriptViewerProps> = ({ tokens, highlightRefUuids }) => {
   const lines = tokens.lines;
+  const [routeSearchParams] = useSearchParams();
+  const focusedLineParam = routeSearchParams.get('step');
+  const focusedLine = useMemo(() => {
+    const value = Number(focusedLineParam);
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }, [focusedLineParam]);
 
   const foldRanges = useMemo(() => computeFoldRanges(lines), [lines]);
   const foldStartIndex = useMemo(() => buildFoldStartIndex(foldRanges), [foldRanges]);
@@ -159,6 +166,15 @@ export const ScriptViewer: React.FC<ScriptViewerProps> = ({ tokens, highlightRef
     return () => cancelAnimationFrame(id);
   }, [highlightSig]);
 
+  useEffect(() => {
+    if (!focusedLine || !rootRef.current) return;
+    const id = requestAnimationFrame(() => {
+      const target = rootRef.current?.querySelector(`[data-line="${focusedLine}"]`);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [focusedLine, lines.length]);
+
   return (
     <HighlightRefContext.Provider value={highlightRefUuids ?? null}>
       <ScriptSearchContext.Provider value={searchPredicate}>
@@ -196,6 +212,7 @@ export const ScriptViewer: React.FC<ScriptViewerProps> = ({ tokens, highlightRef
                   line={line}
                   marginRole={marginRole}
                   hidden={hiddenLines.has(line.line)}
+                  focused={line.line === focusedLine}
                   foldStarts={starts}
                   folded={folded}
                   onToggleFold={toggleFold}

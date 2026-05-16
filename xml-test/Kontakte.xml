@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FMSaveAsXML
+  version="2.0"
+  Source="FileMaker Pro 21"
+  File="Kontakte.fmp12"
+  UUID="00000000-0000-0000-0000-000000000001"
+  locale="de"
+  Has_DDR_INFO="True">
+  <ExternalDataSourceCatalog />
+  <BaseTableCatalog>
+    <BaseTable id="1" name="Kontakte">
+      <UUID>00000000-0000-0000-0000-000000000101</UUID>
+    </BaseTable>
+  </BaseTableCatalog>
+  <FieldsForTables>
+    <FieldCatalog>
+      <BaseTableReference id="1" name="Kontakte" UUID="00000000-0000-0000-0000-000000000101" />
+      <ObjectList>
+        <Field id="1" name="KontaktID" fieldtype="Normal" datatype="Text" comment="Primary key for demo contacts">
+          <UUID>00000000-0000-0000-0000-000000000201</UUID>
+          <Storage global="False" maxRepetitions="1" />
+        </Field>
+        <Field id="2" name="Vorname" fieldtype="Normal" datatype="Text" comment="Demo first name">
+          <UUID>00000000-0000-0000-0000-000000000202</UUID>
+          <Storage global="False" maxRepetitions="1" />
+        </Field>
+        <Field id="3" name="Nachname" fieldtype="Normal" datatype="Text" comment="Demo last name">
+          <UUID>00000000-0000-0000-0000-000000000203</UUID>
+          <Storage global="False" maxRepetitions="1" />
+        </Field>
+        <Field id="4" name="Vollname" fieldtype="Calculated" datatype="Text" comment="Example calculated field">
+          <UUID>00000000-0000-0000-0000-000000000204</UUID>
+          <Storage global="False" maxRepetitions="1" />
+          <Calculation>
+            <Text>Vorname &amp; " " &amp; Nachname</Text>
+            <DDRREF kind="ChunkList" hash="KONTAKTE_FIELD_VOLLNAME">_00000000-0000-0000-0000-000000000904</DDRREF>
+          </Calculation>
+        </Field>
+        <Field id="5" name="Status" fieldtype="Normal" datatype="Text" comment="Demo status">
+          <UUID>00000000-0000-0000-0000-000000000205</UUID>
+          <Storage global="False" maxRepetitions="1" />
+        </Field>
+      </ObjectList>
+    </FieldCatalog>
+  </FieldsForTables>
+  <TableOccurrenceCatalog>
+    <TableOccurrence id="1" name="Kontakte" type="BaseTable" View="Expanded" height="160">
+      <UUID>00000000-0000-0000-0000-000000000301</UUID>
+      <BaseTableSourceReference>
+        <DataSourceReference id="0" name="Kontakte.fmp12" UUID="00000000-0000-0000-0000-000000000001" />
+        <BaseTableReference id="1" name="Kontakte" UUID="00000000-0000-0000-0000-000000000101" />
+      </BaseTableSourceReference>
+      <CoordRect top="100" left="100" bottom="260" right="380" />
+      <Color red="80" green="140" blue="210" alpha="1" />
+    </TableOccurrence>
+  </TableOccurrenceCatalog>
+  <RelationshipCatalog />
+  <ValueListCatalog>
+    <ValueList id="1" name="Kontaktstatus">
+      <UUID>00000000-0000-0000-0000-000000000401</UUID>
+      <Source value="CustomValues" />
+    </ValueList>
+  </ValueListCatalog>
+  <OptionsForValueLists>
+    <ValueList>
+      <ValueListReference id="1" name="Kontaktstatus" UUID="00000000-0000-0000-0000-000000000401" />
+      <Source value="CustomValues" />
+      <CustomValues>
+        <Text>Aktiv</Text>
+        <Text>Inaktiv</Text>
+      </CustomValues>
+    </ValueList>
+  </OptionsForValueLists>
+  <CustomFunctionsCatalog>
+    <CustomFunction id="1" name="KontaktNameFormatieren">
+      <UUID>00000000-0000-0000-0000-000000000501</UUID>
+      <Display>KontaktNameFormatieren ( vorname ; nachname )</Display>
+      <ObjectList>
+        <Parameter name="vorname" />
+        <Parameter name="nachname" />
+      </ObjectList>
+    </CustomFunction>
+  </CustomFunctionsCatalog>
+  <CalcsForCustomFunctions>
+    <CustomFunctionCalc>
+      <CustomFunctionReference id="1" name="KontaktNameFormatieren" UUID="00000000-0000-0000-0000-000000000501" />
+      <Calculation>
+        <Text>Trim ( vorname &amp; " " &amp; nachname )</Text>
+        <ChunkList>
+          <Chunk type="FunctionRef">Trim</Chunk>
+          <Chunk type="NoRef"> ( vorname &amp; " " &amp; nachname )</Chunk>
+        </ChunkList>
+        <DDRREF kind="ChunkList" hash="KONTAKTE_CF_FORMAT_NAME">_00000000-0000-0000-0000-000000000905</DDRREF>
+      </Calculation>
+    </CustomFunctionCalc>
+  </CalcsForCustomFunctions>
+  <ScriptCatalog>
+    <Script id="1" name="Demo - Kontakte suchen" isFolder="False" isSeparatorItem="False">
+      <UUID modifications="1" userName="Demo User" accountName="demo" timestamp="2026-01-01T10:00:00">00000000-0000-0000-0000-000000000601</UUID>
+      <Options hidden="False" access="All" SiriShortcutVisible="False" runwithfullaccess="False" compatibility="0">0</Options>
+    </Script>
+    <Script id="2" name="Demo - Kontakt anzeigen" isFolder="False" isSeparatorItem="False">
+      <UUID modifications="1" userName="Demo User" accountName="demo" timestamp="2026-01-01T10:05:00">00000000-0000-0000-0000-000000000602</UUID>
+      <Options hidden="False" access="All" SiriShortcutVisible="False" runwithfullaccess="False" compatibility="0">0</Options>
+    </Script>
+  </ScriptCatalog>
+  <StepsForScripts>
+    <Script>
+      <ScriptReference id="1" name="Demo - Kontakte suchen" UUID="00000000-0000-0000-0000-000000000601" />
+      <ObjectList>
+        <Step id="141" name="Set Variable" index="1" enable="True">
+          <UUID>00000000-0000-0000-0000-000000000701</UUID>
+          <DDRREF kind="StepText" hash="KONTAKTE_STEP_SEARCH">_00000000-0000-0000-0000-000000000701</DDRREF>
+          <ParameterValues>
+            <Parameter type="Variable">
+              <Name value="$V_SUCHTEXT" />
+            </Parameter>
+            <Parameter type="Calculated">
+              <Calculation>
+                <Text>""</Text>
+              </Calculation>
+            </Parameter>
+          </ParameterValues>
+        </Step>
+        <Step id="87" name="Perform Find" index="2" enable="True">
+          <UUID>00000000-0000-0000-0000-000000000702</UUID>
+          <DDRREF kind="StepText" hash="KONTAKTE_STEP_FIND">_00000000-0000-0000-0000-000000000702</DDRREF>
+        </Step>
+      </ObjectList>
+    </Script>
+    <Script>
+      <ScriptReference id="2" name="Demo - Kontakt anzeigen" UUID="00000000-0000-0000-0000-000000000602" />
+      <ObjectList>
+        <Step id="103" name="Go to Layout" index="1" enable="True">
+          <UUID>00000000-0000-0000-0000-000000000703</UUID>
+          <DDRREF kind="StepText" hash="KONTAKTE_STEP_LAYOUT">_00000000-0000-0000-0000-000000000703</DDRREF>
+          <ParameterValues>
+            <Parameter type="Layout">
+              <LayoutReference id="1" name="Kontaktliste" UUID="00000000-0000-0000-0000-000000000801" />
+            </Parameter>
+          </ParameterValues>
+        </Step>
+      </ObjectList>
+    </Script>
+  </StepsForScripts>
+  <LayoutCatalog>
+    <Layout id="1" name="Kontaktliste" isFolder="False" isSeparatorItem="False">
+      <UUID>00000000-0000-0000-0000-000000000801</UUID>
+      <TableOccurrenceReference id="1" name="Kontakte" UUID="00000000-0000-0000-0000-000000000301" />
+      <PartsList>
+        <Part type="Body" kind="3">
+          <Definition type="Body" kind="3" size="320" absolute="0" Options="0" />
+          <ObjectList>
+            <LayoutObject id="1" type="Text" name="Titel_Text" kind="1" hash="KONTAKTE_LAYOUT_TITLE">
+              <UUID>00000000-0000-0000-0000-000000000811</UUID>
+              <Bounds top="20" left="20" bottom="60" right="300" />
+              <Text>
+                <StyledText>
+                  <Data>Kontakte</Data>
+                </StyledText>
+              </Text>
+            </LayoutObject>
+            <LayoutObject id="2" type="Edit Box" name="Vorname_Eingabe" kind="1" hash="KONTAKTE_LAYOUT_FIRSTNAME">
+              <UUID>00000000-0000-0000-0000-000000000812</UUID>
+              <Bounds top="80" left="20" bottom="110" right="260" />
+            </LayoutObject>
+            <LayoutObject id="3" type="Button" name="Suchen_Button" kind="1" hash="KONTAKTE_LAYOUT_FIND_BUTTON">
+              <UUID>00000000-0000-0000-0000-000000000813</UUID>
+              <Bounds top="130" left="20" bottom="165" right="180" />
+              <Button>
+                <Label>
+                  <Calculation>
+                    <Text>"Suchen"</Text>
+                  </Calculation>
+                </Label>
+              </Button>
+              <ScriptTriggers>
+                <ScriptTrigger name="OnObjectEnter">
+                  <ScriptReference id="1" name="Demo - Kontakte suchen" UUID="00000000-0000-0000-0000-000000000601" />
+                </ScriptTrigger>
+              </ScriptTriggers>
+            </LayoutObject>
+          </ObjectList>
+        </Part>
+      </PartsList>
+    </Layout>
+  </LayoutCatalog>
+  <AccountsCatalog>
+    <ObjectList>
+      <Account id="1" kind="0" type="FileMaker" enable="True">
+        <UUID modifications="1" userName="Demo User" accountName="demo" timestamp="2026-01-01T10:00:00">00000000-0000-0000-0000-000000000901</UUID>
+        <Description>Demo account without credentials</Description>
+        <Authentication>
+          <AccountName>demo</AccountName>
+        </Authentication>
+        <PrivilegeSetReference id="1" name="Read Only" />
+      </Account>
+    </ObjectList>
+  </AccountsCatalog>
+</FMSaveAsXML>

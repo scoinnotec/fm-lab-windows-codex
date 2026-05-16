@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const settingsStore = require('./settings-store');
+const appLogger = require('../utils/app-logger');
 
 const PLUGINS_DIR = __dirname;
 const loaded = {};
@@ -62,7 +63,7 @@ function loadPlugins(router) {
     loaded[manifest.name] = manifest;
 
     if (!manifest.enabled) {
-      console.log(`  Plugin [${manifest.name}] — disabled`);
+      appLogger.info('Plugin disabled', { plugin: manifest.name });
       continue;
     }
 
@@ -71,7 +72,10 @@ function loadPlugins(router) {
     if (fs.existsSync(routesFile)) {
       const pluginRoutes = require(routesFile);
       router.use(manifest.routes_prefix, pluginRoutes);
-      console.log(`  Plugin [${manifest.name}] — mounted at /api${manifest.routes_prefix}`);
+      appLogger.info('Plugin mounted', {
+        plugin: manifest.name,
+        route: `/api${manifest.routes_prefix}`,
+      });
     }
   }
 

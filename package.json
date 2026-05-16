@@ -1,5 +1,5 @@
 {
-  "name": "fm-lab",
+  "name": "fm-lab-windows-codex",
   "version": "0.6.1",
   "description": "FileMaker XML Analysis with DuckDB - Multi-Frontend Architecture",
   "private": true,
@@ -9,14 +9,24 @@
     "packages/*"
   ],
   "scripts": {
+    "init:win": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/init.ps1",
+    "convert:win": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/convert_fm_xml.ps1",
+    "import:server-logs": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/import_server_logs.ps1",
+    "import:best-practice": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/import_best_practice_package.ps1",
+    "sample:xml": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/open-sample-xml.ps1",
+    "start:win": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/start-servers.ps1",
+    "stop:win": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/stop-servers.ps1",
     "dev:api": "npm run dev --workspace=rest-api",
+    "dev:web": "npm run dev --workspace=web",
+    "dev:all": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
     "dev:shared": "npm run build:watch --workspace=packages/shared",
     "build:shared": "npm run build --workspace=packages/shared",
     "generate:types": "npm run generate --workspace=packages/shared",
     "install:all": "npm install && npm install --workspaces",
     "clean": "npm run clean --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "test:xml": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/convert_fm_xml.ps1 --test --force-rebuild --fail-fast"
   },
   "keywords": [
     "filemaker",

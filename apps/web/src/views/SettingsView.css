@@ -41,6 +41,70 @@
   color: var(--color-error-fg);
 }
 
+.settings-section {
+  margin-bottom: 1rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-elevated);
+}
+
+.settings-section-header h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+  color: var(--color-text-primary);
+}
+
+.settings-section-header p {
+  margin: 0 0 1rem;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.settings-ai-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.plugin-card-field input[type="password"] {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  background: var(--color-bg-input);
+  color: var(--color-text-primary);
+}
+
+.settings-ai-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.settings-secondary-button {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.settings-secondary-button:hover {
+  background: var(--color-hover-bg);
+}
+
+.settings-save-note {
+  color: var(--color-success-fg);
+  font-size: 0.9rem;
+}
+
 .plugin-list {
   display: flex;
   flex-direction: column;
@@ -168,6 +232,12 @@
   font-size: 0.9rem;
   background: var(--color-bg-input);
   color: var(--color-text-primary);
+}
+
+@media (max-width: 768px) {
+  .settings-ai-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .plugin-card-actions {

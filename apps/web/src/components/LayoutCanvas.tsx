@@ -6,6 +6,7 @@ import { HighlightRing, LayoutObjectShape, SelectionRing, type LabelMode } from 
 import { LayoutObjectTooltip } from './LayoutObjectTooltip';
 import { LayoutTypeFilter } from './LayoutTypeFilter';
 import { buildObjectPath } from '../lib/navigation';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 type Props = {
   data: LayoutData;
@@ -81,6 +82,7 @@ const PART_FILL: Record<string, string> = {
 };
 
 export const LayoutCanvas = forwardRef<LayoutCanvasHandle, Props>(({ data, externalMatchUuids, onClearRef }, externalRef) => {
+  const language = getUiLanguage();
   const navigate = useNavigate();
   // Aktuelle Detail-View-UUID — wird als Origin für Cross-Nav-Klicks mitgegeben.
   // Auf der Vollbild-Layout-View (/layout/:uuid) ist es das Layout selbst;
@@ -270,39 +272,39 @@ export const LayoutCanvas = forwardRef<LayoutCanvasHandle, Props>(({ data, exter
             <input
               ref={searchInputRef}
               type="search"
-              placeholder="Layout-Objekt suchen…"
+              placeholder={tx(language, 'Layout-Objekt suchen...', 'Search layout object...')}
               value={search.query}
               onChange={onSearchChange}
               onKeyDown={onSearchKeyDown}
-              title="Tab: nächster Treffer · Shift+Tab: voriger · Enter: öffnen · Esc: Reset"
-              aria-label="Layout-Objekt suchen"
+              title={tx(language, 'Tab: nächster Treffer · Shift+Tab: voriger · Enter: öffnen · Esc: Reset', 'Tab: next match · Shift+Tab: previous · Enter: open · Esc: reset')}
+              aria-label={tx(language, 'Layout-Objekt suchen', 'Search layout object')}
             />
             {filterActive && (
               <span className="layout-match-count">
-                {search.matches.length} Treffer
+                {search.matches.length} {tx(language, 'Treffer', 'matches')}
               </span>
             )}
           </div>
 
-          <div className="layout-label-toggle" role="group" aria-label="Beschriftung">
+          <div className="layout-label-toggle" role="group" aria-label={tx(language, 'Beschriftung', 'Label')}>
             <button
               type="button"
               className={`layout-toggle-btn${labelMode === 'name' ? ' active' : ''}`}
               onClick={() => setLabelMode('name')}
-              title="Sprechende Bezeichnung (Feldname / Caption / Object-Name)"
-            >Name</button>
+              title={tx(language, 'Sprechende Bezeichnung (Feldname / Caption / Objektname)', 'Human label (field name / caption / object name)')}
+            >{tx(language, 'Name', 'Name')}</button>
             <button
               type="button"
               className={`layout-toggle-btn${labelMode === 'type' ? ' active' : ''}`}
               onClick={() => setLabelMode('type')}
-              title="Object-Typ als Beschriftung"
-            >Typ</button>
+              title={tx(language, 'Objekttyp als Beschriftung', 'Object type as label')}
+            >{tx(language, 'Typ', 'Type')}</button>
           </div>
 
-          <button onClick={fitToViewport} type="button" title="Auf Viewport zoomen">Fit</button>
-          <button onClick={reset100} type="button" title="100% Originalgröße">100%</button>
+          <button onClick={fitToViewport} type="button" title={tx(language, 'Auf Viewport zoomen', 'Zoom to viewport')}>Fit</button>
+          <button onClick={reset100} type="button" title={tx(language, '100% Originalgröße', '100% original size')}>100%</button>
           <span className="layout-stats">
-            {data.objects.length} Objekte · Zoom {(transform.scale * 100).toFixed(0)}%
+            {data.objects.length} {tx(language, 'Objekte', 'objects')} · Zoom {(transform.scale * 100).toFixed(0)}%
           </span>
         </div>
 

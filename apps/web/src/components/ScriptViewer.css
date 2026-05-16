@@ -209,6 +209,11 @@
   background-color: var(--fm-line-hover-bg);
 }
 
+.fm-line--focused {
+  background-color: var(--fm-ui-active-bg);
+  box-shadow: inset 3px 0 0 0 var(--fm-ui-accent);
+}
+
 .fm-line--hidden {
   display: none;
 }

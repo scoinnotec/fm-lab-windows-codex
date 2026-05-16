@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ViewMode } from '../script/types';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 export type FilterStyle = 'dim' | 'hide';
 
@@ -14,14 +15,14 @@ interface ScriptViewerHeaderProps {
   onCollapseMultiline: () => void;
 }
 
-const MODE_OPTIONS: Array<{ id: ViewMode; label: string }> = [
-  { id: 'normal',           label: 'Normal' },
-  { id: 'compact',          label: 'Kompakt' },
-  { id: 'comments-only',    label: 'Nur Kommentare' },
-  { id: 'control-only',     label: 'Nur Kontrollstrukturen' },
-  { id: 'subscript-only',   label: 'Nur Sub-Aufrufe' },
-  { id: 'assignments-only', label: 'Nur Zuweisungen' },
-  { id: 'executive-only',   label: 'Nur ausführbarer Code' },
+const MODE_OPTIONS: Array<{ id: ViewMode; label: string; labelEn: string }> = [
+  { id: 'normal',           label: 'Normal', labelEn: 'Normal' },
+  { id: 'compact',          label: 'Kompakt', labelEn: 'Compact' },
+  { id: 'comments-only',    label: 'Nur Kommentare', labelEn: 'Comments only' },
+  { id: 'control-only',     label: 'Nur Kontrollstrukturen', labelEn: 'Control structures only' },
+  { id: 'subscript-only',   label: 'Nur Sub-Aufrufe', labelEn: 'Subscripts only' },
+  { id: 'assignments-only', label: 'Nur Zuweisungen', labelEn: 'Assignments only' },
+  { id: 'executive-only',   label: 'Nur ausführbarer Code', labelEn: 'Executable code only' },
 ];
 
 export const ScriptViewerHeader: React.FC<ScriptViewerHeaderProps> = ({
@@ -35,32 +36,33 @@ export const ScriptViewerHeader: React.FC<ScriptViewerHeaderProps> = ({
   onCollapseMultiline,
 }) => {
   const filterDisabled = mode === 'normal';
+  const language = getUiLanguage();
   return (
     <div className="fm-script-header">
       <h2 className="type-detail-heading fm-script-title">
-        Script-Text <span className="fm-script-count">({stepCount} Schritte)</span>
+        {tx(language, 'Script-Text', 'Script text')} <span className="fm-script-count">({stepCount} {tx(language, 'Schritte', 'steps')})</span>
       </h2>
       <div className="fm-script-actions">
         <label className="fm-script-mode">
-          <span className="fm-script-mode-label">Ansicht:</span>
+          <span className="fm-script-mode-label">{tx(language, 'Ansicht:', 'View:')}</span>
           <select
             value={mode}
             onChange={(e) => onModeChange(e.target.value as ViewMode)}
             aria-label="View-Mode"
           >
             {MODE_OPTIONS.map(opt => (
-              <option key={opt.id} value={opt.id}>{opt.label}</option>
+              <option key={opt.id} value={opt.id}>{tx(language, opt.label, opt.labelEn)}</option>
             ))}
           </select>
         </label>
         <div
           className={`fm-filter-toggle${filterDisabled ? ' fm-filter-toggle--disabled' : ''}`}
           role="radiogroup"
-          aria-label="Filter-Stil"
+          aria-label={tx(language, 'Filter-Stil', 'Filter style')}
           aria-disabled={filterDisabled}
           title={filterDisabled
-            ? 'Nur relevant, wenn ein Filter aktiv ist'
-            : 'Gefilterte Zeilen: dimmen oder ausblenden'}
+            ? tx(language, 'Nur relevant, wenn ein Filter aktiv ist', 'Only relevant when a filter is active')
+            : tx(language, 'Gefilterte Zeilen: dimmen oder ausblenden', 'Dim or hide filtered lines')}
         >
           <button
             type="button"
@@ -70,7 +72,7 @@ export const ScriptViewerHeader: React.FC<ScriptViewerHeaderProps> = ({
             onClick={() => onFilterStyleChange('dim')}
             disabled={filterDisabled}
           >
-            Dimmen
+            {tx(language, 'Dimmen', 'Dim')}
           </button>
           <button
             type="button"
@@ -80,18 +82,18 @@ export const ScriptViewerHeader: React.FC<ScriptViewerHeaderProps> = ({
             onClick={() => onFilterStyleChange('hide')}
             disabled={filterDisabled}
           >
-            Ausblenden
+            {tx(language, 'Ausblenden', 'Hide')}
           </button>
         </div>
         <div className="fm-script-fold-buttons">
-          <button type="button" onClick={onExpandAll} title="Alle aufklappen">
-            ⌄ Alle auf
+          <button type="button" onClick={onExpandAll} title={tx(language, 'Alle aufklappen', 'Expand all')}>
+            ⌄ {tx(language, 'Alle auf', 'Expand all')}
           </button>
-          <button type="button" onClick={onCollapseAll} title="Alle zuklappen">
-            ⌃ Alle zu
+          <button type="button" onClick={onCollapseAll} title={tx(language, 'Alle zuklappen', 'Collapse all')}>
+            ⌃ {tx(language, 'Alle zu', 'Collapse all')}
           </button>
-          <button type="button" onClick={onCollapseMultiline} title="Mehrzeilige Calcs zuklappen">
-            ⌃ Mehrzeilige
+          <button type="button" onClick={onCollapseMultiline} title={tx(language, 'Mehrzeilige Calcs zuklappen', 'Collapse multiline calculations')}>
+            ⌃ {tx(language, 'Mehrzeilige', 'Multiline')}
           </button>
         </div>
       </div>

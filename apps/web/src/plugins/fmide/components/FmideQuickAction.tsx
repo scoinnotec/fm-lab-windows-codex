@@ -1,5 +1,6 @@
 import React from 'react';
 import { useFeaturesContext } from '../../../hooks/useFeatures';
+import { currentText } from '../../../lib/uiLanguage';
 import { buildGotoUrl } from '../hooks/useFmideUri';
 import type { ObjectSlotProps } from '../../types';
 
@@ -10,6 +11,8 @@ import type { ObjectSlotProps } from '../../types';
 export const FmideQuickAction: React.FC<ObjectSlotProps> = ({ objectUuid, objectType }) => {
   const { getUi } = useFeaturesContext();
   const supported = getUi('fmide')?.supported_object_types ?? [];
+  const label = currentText('Öffnen', 'Open');
+  const title = currentText('In FileMaker öffnen', 'Open in FileMaker');
 
   if (!supported.includes(objectType)) return null;
 
@@ -22,10 +25,11 @@ export const FmideQuickAction: React.FC<ObjectSlotProps> = ({ objectUuid, object
     <button
       className="fmide-quick-action"
       onClick={handleClick}
-      aria-label="In FileMaker öffnen"
-      title="In FileMaker öffnen"
+      aria-label={title}
+      title={title}
     >
-      <span aria-hidden="true">&#x1F984;</span>
+      <span className="fmide-quick-action-icon" aria-hidden="true">&#x1F984;</span>
+      <span className="fmide-quick-action-label">{label}</span>
     </button>
   );
 };

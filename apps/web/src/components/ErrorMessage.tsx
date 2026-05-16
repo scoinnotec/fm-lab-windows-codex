@@ -1,4 +1,5 @@
 import React from 'react';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 interface ErrorMessageProps {
   message: string;
@@ -10,6 +11,7 @@ interface ErrorMessageProps {
  * Displays an error with optional retry button
  */
 export const ErrorMessage: React.FC<ErrorMessageProps> = ({ message, onRetry }) => {
+  const language = getUiLanguage();
   return (
     <div
       className="error-detail"
@@ -24,15 +26,15 @@ export const ErrorMessage: React.FC<ErrorMessageProps> = ({ message, onRetry }) 
       }}
     >
       <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>!</div>
-      <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem' }}>Fehler beim Laden</h3>
+      <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem' }}>{tx(language, 'Fehler beim Laden', 'Loading failed')}</h3>
       <p style={{ margin: '0 0 1rem', color: '#ccc' }}>{message}</p>
       {onRetry && (
         <button
           onClick={onRetry}
           style={{ padding: '0.5rem 1.5rem' }}
-          aria-label="Erneut versuchen"
+          aria-label={tx(language, 'Erneut versuchen', 'Retry')}
         >
-          Erneut versuchen
+          {tx(language, 'Erneut versuchen', 'Retry')}
         </button>
       )}
     </div>

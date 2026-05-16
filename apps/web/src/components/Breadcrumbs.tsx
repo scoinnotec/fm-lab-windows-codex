@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { BreadcrumbItem } from '../types';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 interface BreadcrumbsProps {
   items: BreadcrumbItem[];
@@ -12,6 +13,7 @@ interface BreadcrumbsProps {
  */
 export const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items }) => {
   const navigate = useNavigate();
+  const language = getUiLanguage();
 
   return (
     <nav className="breadcrumbs" aria-label="Breadcrumb">
@@ -32,7 +34,7 @@ export const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items }) => {
                 <button
                   onClick={() => navigate(item.path!)}
                   className="breadcrumb-link"
-                  aria-label={`Navigiere zu ${item.label}`}
+                  aria-label={tx(language, `Navigiere zu ${item.label}`, `Navigate to ${item.label}`)}
                 >
                   {item.label}
                 </button>

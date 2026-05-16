@@ -3,6 +3,7 @@ import { useCustomFunctionTokens } from '../hooks/useCustomFunctionTokens';
 import { CustomFunctionViewer } from './CustomFunctionViewer';
 import { LoadingSpinner } from './LoadingSpinner';
 import { ErrorMessage } from './ErrorMessage';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 
 interface CustomFunctionDetailProps {
   uuid: string;
@@ -19,12 +20,13 @@ interface CustomFunctionDetailProps {
  * (UI-Locale, /reference/categories?lang=...) bezogen werden.
  */
 export const CustomFunctionDetail: React.FC<CustomFunctionDetailProps> = ({ uuid, highlightRefUuids }) => {
-  const { data, loading, error, retry } = useCustomFunctionTokens(uuid, 'de');
+  const language = getUiLanguage();
+  const { data, loading, error, retry } = useCustomFunctionTokens(uuid, language);
 
-  if (loading) return <LoadingSpinner message="Funktion wird geladen..." />;
+  if (loading) return <LoadingSpinner message={tx(language, 'Funktion wird geladen...', 'Loading function...')} />;
   if (error) return <ErrorMessage message={error} onRetry={retry} />;
   if (!data || !data.tokens || data.tokens.length === 0) {
-    return <div className="no-references">Diese Funktion enthält keinen Formel-Text.</div>;
+    return <div className="no-references">{tx(language, 'Diese Funktion enthält keinen Formel-Text.', 'This function contains no formula text.')}</div>;
   }
 
   return <CustomFunctionViewer data={data} highlightRefUuids={highlightRefUuids} />;

@@ -8,6 +8,7 @@ import { ErrorMessage } from './ErrorMessage';
 import { ScriptDetail } from './ScriptDetail';
 import { CustomFunctionDetail } from './CustomFunctionDetail';
 import { FieldDetail } from './FieldDetail';
+import { getUiLanguage, tx } from '../lib/uiLanguage';
 import '../views/LayoutView.css';
 
 interface ObjectDetailProps {
@@ -32,14 +33,18 @@ interface ObjectDetailProps {
   onClearRef?: () => void;
 }
 
-const DETAIL_HEADINGS: Record<string, string> = {
-  'Script': 'Script-Text',
-  'Layout': 'Layout-Darstellung',
-  'Field': 'Feld-Details',
-  'BaseTable': 'Tabellen-Details',
-  'CustomFunction': 'Funktions-Details',
-  'ValueList': 'Wertelisten-Details',
-};
+function detailHeading(objectType: string, language = getUiLanguage()) {
+  const labels: Record<string, { de: string; en: string }> = {
+    Script: { de: 'Script-Text', en: 'Script text' },
+    Layout: { de: 'Layout-Darstellung', en: 'Layout view' },
+    Field: { de: 'Feld-Details', en: 'Field details' },
+    BaseTable: { de: 'Tabellen-Details', en: 'Table details' },
+    CustomFunction: { de: 'Funktions-Details', en: 'Function details' },
+    ValueList: { de: 'Wertelisten-Details', en: 'Value list details' },
+  };
+  const label = labels[objectType];
+  return label ? tx(language, label.de, label.en) : tx(language, 'Details', 'Details');
+}
 
 /**
  * Embedded Layout viewer used inside DetailView. Lädt Layout-Daten und rendert
@@ -51,22 +56,23 @@ const EmbeddedLayoutView: React.FC<{
   highlightUuids?: Set<string>;
   onClearRef?: () => void;
 }> = ({ uuid, highlightUuids, onClearRef }) => {
+  const language = getUiLanguage();
   const { data, loading, error } = useLayoutData(uuid);
-  if (loading) return <LoadingSpinner message="Layout wird geladen..." />;
+  if (loading) return <LoadingSpinner message={tx(language, 'Layout wird geladen...', 'Loading layout...')} />;
   if (error) return <ErrorMessage message={error} />;
   if (!data || data.objects.length === 0) {
-    return <div className="no-references">Dieses Layout enthält keine Objekte.</div>;
+    return <div className="no-references">{tx(language, 'Dieses Layout enthält keine Objekte.', 'This layout contains no objects.')}</div>;
   }
   return (
-    <div className="object-detail" aria-label="Layout-Darstellung">
+    <div className="object-detail" aria-label={tx(language, 'Layout-Darstellung', 'Layout view')}>
       <div className="layout-detail-header">
-        <h2 className="type-detail-heading">Layout-Darstellung</h2>
+        <h2 className="type-detail-heading">{tx(language, 'Layout-Darstellung', 'Layout view')}</h2>
         <Link
           to={`/layout/${uuid}`}
           className="layout-detail-fullscreen"
-          title="Layout in Vollbild-Ansicht öffnen"
+          title={tx(language, 'Layout in Vollbild-Ansicht öffnen', 'Open layout in fullscreen view')}
         >
-          Vollbild ↗
+          {tx(language, 'Vollbild ↗', 'Fullscreen ↗')}
         </Link>
       </div>
       <div className="layout-detail-canvas">
@@ -113,6 +119,7 @@ function highlightSubstring(text: string, needle: string | null | undefined): Re
  * `highlightText` legt einen Substring-Highlight über alle Zeilen.
  */
 const GenericObjectDetail: React.FC<ObjectDetailProps> = ({ uuid, objectType, highlightText }) => {
+  const language = getUiLanguage();
   const { data, loading, error, retry } = useObjectDetails(uuid);
 
   const renderedLines = useMemo(() => {
@@ -125,14 +132,14 @@ const GenericObjectDetail: React.FC<ObjectDetailProps> = ({ uuid, objectType, hi
     ));
   }, [data, highlightText]);
 
-  if (loading) return <LoadingSpinner message="Details werden geladen..." />;
+  if (loading) return <LoadingSpinner message={tx(language, 'Details werden geladen...', 'Loading details...')} />;
   if (error) return <ErrorMessage message={error} onRetry={retry} />;
   if (!data || data.length === 0) {
-    return <div className="no-references">Keine Details verfuegbar</div>;
+    return <div className="no-references">{tx(language, 'Keine Details verfügbar', 'No details available')}</div>;
   }
 
-  const heading = DETAIL_HEADINGS[objectType] || 'Details';
-  const countLabel = objectType === 'Script' ? ` (${data.length} Schritte)` : '';
+  const heading = detailHeading(objectType, language);
+  const countLabel = objectType === 'Script' ? ` (${data.length} ${tx(language, 'Schritte', 'steps')})` : '';
 
   return (
     <div className="object-detail" aria-label={heading}>

@@ -18,7 +18,17 @@ const ALLOWED_ATTRS = new Set([
   'data-plugin-fn', 'data-plugin-component', 'data-plugin-source',
 ]);
 
+const DROP_WITH_CONTENT_TAGS = new Set([
+  'SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META',
+]);
+
 function sanitizeNode(node: Element) {
+  // Ausführbare oder dokumentverändernde Tags komplett entfernen.
+  if (DROP_WITH_CONTENT_TAGS.has(node.tagName)) {
+    node.remove();
+    return;
+  }
+
   // Disallowed Tags → unwrap (Inhalt behalten, Tag entfernen)
   if (!ALLOWED_TAGS.has(node.tagName)) {
     const parent = node.parentNode;
@@ -39,7 +49,7 @@ function sanitizeNode(node: Element) {
     }
     if (name === 'href') {
       const value = attr.value.trim();
-      // Nur http/https/mailto erlauben — javascript: etc. blocken
+      // Nur http/https/mailto und lokale Anker erlauben — javascript: etc. blocken.
       if (!/^(https?:|mailto:|#)/i.test(value)) {
         node.removeAttribute(attr.name);
       }
