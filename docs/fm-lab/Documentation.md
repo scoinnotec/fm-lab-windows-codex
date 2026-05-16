@@ -30,9 +30,10 @@
 
 ## Specs
 - Folder structure
-- REST API
 - XML
+- Schema
 - SQL Templates
+- REST API
 - Docs
 - Dependencies
 

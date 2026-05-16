@@ -1,25 +1,44 @@
 # Architecture
 
 - [Core](#core)
+- [DuckDB-powered Object Catalog](#duckdb-powered-object-catalog)
 - [Interface](#interface)
 - [Deployment options](#deployment-options)
 - [Different use cases](#different-use-cases)
 
 The FM-Lab architecture separates the **[ingestion pipeline](How%20it%20works.md#ingestion-pipeline)** from the **[interaction layer](How%20it%20works.md#interaction-layer)** and defines the infrastructure components between them.
 
-The ingestion pipeline converts FileMaker SaXML exports into a DuckDB-based Object Catalog. The interaction layer then consumes this catalog through the REST API, a web interface built on top of that API, or direct agentic tool access.
+The ingestion pipeline converts FileMaker SaXML exports into a [DuckDB-powered Object Catalog](#duckdb-powered-object-catalog). The interaction layer then consumes this catalog through the REST API, a web interface built on top of that API, or direct agentic tool access.
 
 FM-Lab relies on an open-source tech stack that can run on different operating systems and in flexible deployment configurations.
 
 ![FM-Lab-Architecture.jpg](../Assets/FM-Lab-Architecture.jpg)
 
+---
 
 ### Core
 
 The core component is the **Object Catalog**. It is exposed through a **REST API** to separate the source of truth from the consuming tools:
-- user interface
-- AI agents
-- other tools
+- [user interface](#filemaker-analysis-app)
+- [AI agents](#agentic-analytics-and-coding-workflow)
+- [other tools](#object-catalog-server)
+
+---
+
+### DuckDB-powered Object Catalog
+
+Choosing DuckDB as the core engine is a major design decision in this architecture. It integrates cleanly into the FM-Lab tech stack and provides several major benefits:
+
+- XML parsing capabilities that combine XPath extraction with SQL-based transformation logic
+- powerful structured queries (like CTEs, window functions, nested structures, JSON, RegExp, Wildcards, flexible UNION statements)
+- analytical storage format
+- RAM-accelerated, in-process execution without client-server overhead
+- scalability far beyond other options (suitable for terabyte-sized analytical workloads)
+- very flexible deployment options
+
+As an open-source infrastructure component, DuckDB is one of the building blocks that makes FM-Lab practical, portable and extensible. To be honest – without DuckDB, this project would never have happened.
+
+Another advantage FM-Lab relies on is DuckDB's rich ecosystem of community extensions. The key enabler for XML parsing is the excellent [**webbed** extension](https://duckdb.org/community_extensions/extensions/webbed) that brings XPath-based data extraction to the SQL-engine.
 
 
 ---
@@ -57,15 +76,11 @@ Because DuckDB is lightweight and runs in many environments, additional deployme
 
 ### Different use cases
 
-**FileMaker analysis app**
-
+#### FileMaker analysis app
 You can use FM-Lab as a browser-based GUI tool for FileMaker analysis without connecting any LLM or agentic tools. Its core functionality includes the XML conversion process powered by DuckDB and shell scripts, plus the local infrastructure for the REST API and web interface. This is the simplest use case and works out of the box once the required dependencies are installed.
 
-
-**Agentic analytics and coding workflow**
-
+#### Agentic analytics and coding workflow
 FM-Lab provides the Object Catalog together with prebuilt skills and references as a solid foundation for your agents. A first-class experience depends on strong frontier models such as Claude or Codex. A good setup includes an IDE such as VS Code, Codium, Cursor, Windsurf or Antigravity, together with an agent plugin. That makes it easier to navigate the prepared folder structure of the project and gives you access to more features. Pure terminal mode is also possible.
 
-
-**Object Catalog server**
+#### Object Catalog server
 If you only want to use the unified Object Catalog to support your own tool or workflow, you can ignore the extra features. Start the API server with the generated DuckDB database and connect your tool through the REST API endpoints. Refer to the endpoint documentation and use Postman or your browser to explore possible URL patterns for your specific case.

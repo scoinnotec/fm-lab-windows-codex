@@ -96,7 +96,13 @@ At this point we need an interaction layer to instruct the agent on how to combi
 
 ## A foundation for agentic coding in FileMaker
 
-The result is a foundation that allows an agent to investigate a FileMaker solution in an iterative loop. Instead of manually browsing metadata, the agent can follow relationships, retrieve documentation, inspect naming patterns and combine these signals into a coherent understanding of the solution. This makes agentic analysis much faster and broader than the classical way of inspecting FileMaker metadata by hand.
+The result is a foundation that allows an agent to investigate a FileMaker solution in an iterative loop. Instead of manually browsing metadata, **the agent can follow relationships, retrieve documentation, inspect naming patterns and combine these signals into a coherent understanding of the solution**. This makes agentic analysis much faster and broader than the traditional way of inspecting FileMaker metadata by hand.
+
+A core principle behind FM-Lab is the use of **SQL (Structured Query Language) as a strategic layer for code analysis**. This is an important difference to many agentic RAG patterns, where agents mainly retrieve fragmented text chunks and then try to reconstruct meaning from partial context. FM-Lab takes another route: it turns the FileMaker solution into **a structured, queryable Object Catalog with explicit relationships**.
+
+That makes SQL a powerful reasoning interface. Modern agents are increasingly good at writing ad hoc SQL queries, joining different sources of information and iterating through the graph of related objects. Instead of guessing from text alone, the agent can ask precise questions against the structure of the solution. As an additional benefit, **this can reduce token consumption dramatically** because the agent retrieves compact, targeted results instead of large text chunks.
+
+DuckDB is a key enabler here. Its role in this architecture is hard to overstate (more on this in the [Architecture](Architecture.md) section). It turns code analysis from digging through static files into querying a live map of the solution in memory. **This RAM-accelerated, in-process architecture removes the drag of disk-heavy workflows and makes deep catalog and graph analysis practical.** As an open-source infrastructure component, DuckDB is one of the building blocks that makes FM-Lab practical, portable and extensible. To be honest – without DuckDB, this project would never have happened.
 
 ### Agentic analytics
 

@@ -31,9 +31,9 @@ The first release focuses on this core: reliable **XML conversion**, a comprehen
 - **Prepared for AI code generation** — The architecture and data model are designed to support AI-driven code generation, augmented by reliable context from the object catalog and the integrated docs 🧠
 
 
-## Architecture
+## [Architecture](docs/fm-lab/Wiki/Architecture.md)
 
-![Architecture](FM-Lab-Architecture.jpg)
+[![Architecture](docs/fm-lab/Assets/FM-Lab-Architecture.jpg)](docs/fm-lab/Wiki/Architecture.md)
 
 ```
 SaveAsXML → Parser → DuckDB → REST API ←→ Tools
@@ -41,12 +41,12 @@ SaveAsXML → Parser → DuckDB → REST API ←→ Tools
                                        ←→ AI Agent
 ```
 
-## How it works
+## [How it works](docs/fm-lab/Wiki/How%20it%20works.md)
 
-Refer to [detailed explanations](docs/fm-lab/Wiki/How%20it%20works.md) for an in-depth walkthrough of the underlying architecture, strategic approach, and information flow within FM-Lab.
+Learn how FM-Lab turns FileMaker XML exports into a structured Object Catalog and uses it as the foundation for analysis, documentation lookup, and agentic workflows. The walkthrough explains the layers of the stack, the flow from ingestion to interaction, and why this architecture is different from simple text-based RAG approaches.
 
 
-## Components
+## [Components](docs/fm-lab/Wiki/Components.md)
 
 - **XML (Input)** (`xml/`) — FileMaker XML exports (SaXML) prepared for conversion from your solution.
 - **SQL Templates** (`sql/`) — Conversion templates and parser templates for universal catalogs.
@@ -129,7 +129,7 @@ npm run dev
 ## Further Documentation
 
 - [`Documentation.md`](docs/fm-lab/Documentation.md) — Full project documentation (work in progress)
-- [`CLAUDE.md`](CLAUDE.md) — in-depth technical documentation on tables, columns, and query patterns
+- [`CLAUDE.md`](CLAUDE.md) — includes documentation on tables, columns, and query patterns
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
 
 ## Optional Reference Data
